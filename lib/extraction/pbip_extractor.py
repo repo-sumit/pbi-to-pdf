@@ -2252,9 +2252,31 @@ def _find_companion_export(pbip_path: Path, pbip_root: Path) -> Optional[Path]:
     """
     pbip_stem = pbip_path.stem if pbip_path.suffix.lower() == '.pbip' else pbip_root.name
 
-    # Exclude files we generate ourselves
+    # Exclude files we generate ourselves. The default pipeline output is
+    # "<input_stem>_report.pdf" (see run_report.default_report_path) which
+    # sits next to the .pbip — without this guard the companion finder
+    # picks it up on every subsequent run and embeds pages of the previous
+    # report as "source dashboard" evidence.
+    _OUTPUT_SUFFIXES = ('_report', '_executive', '-Executive-Insights')
+
     def is_our_output(p: Path) -> bool:
-        return p.stem.endswith('_executive') or p.stem.endswith('-Executive-Insights')
+        if any(p.stem.endswith(s) for s in _OUTPUT_SUFFIXES):
+            return True
+        # Belt-and-suspenders: inspect PDF metadata. generate_report stamps
+        # the producer/creator with reportlab; more importantly, our cover
+        # page always contains the "EXECUTIVE REPORT" eyebrow text. If we
+        # see that in the first page's text, it's our own output.
+        if p.suffix.lower() == '.pdf':
+            try:
+                import fitz  # PyMuPDF
+                with fitz.open(str(p)) as doc:
+                    if len(doc) > 0:
+                        first_text = doc[0].get_text("text") or ""
+                        if "EXECUTIVE REPORT" in first_text.upper():
+                            return True
+            except Exception:
+                pass
+        return False
 
     # Use the first 15 characters of the PBIP stem as a loose match key
     # (e.g. "AI-in-One Dashb" for "AI-in-One Dashboard 1802 - w Agent 365...")
