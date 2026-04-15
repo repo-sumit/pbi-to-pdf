@@ -301,6 +301,30 @@ RADIUS = 4
 
 # Fixed component sizes
 KPI_CARD_HEIGHT      = 64    # pt
-SCREENSHOT_MAX_H_PT  = 230   # pt — leaves room for insights below
-CHART_MAX_H_PT       = 200   # pt — two charts fit per A4 page
+CHART_MAX_H_PT       = 220   # pt — two charts fit per A4 page
 CHART_WIDTH_PT       = CONTENT_WIDTH
+
+
+# ---------------------------------------------------------------------------
+# Source-screenshot legibility thresholds.
+#
+# The renderer uses these to decide whether a dashboard preview can be
+# shown at a useful, readable size. If a screenshot would shrink below
+# the minimum, it is omitted from the opener page and either moved to a
+# dedicated evidence page (if there's room) or dropped entirely.
+# ---------------------------------------------------------------------------
+
+# Minimum target box on the page for a screenshot to count as "readable".
+# Roughly equivalent to 150 mm × 100 mm — the smallest a typical
+# multi-chart Power BI page can be shown without losing axis labels.
+SCREENSHOT_MIN_W_PT = 420
+SCREENSHOT_MIN_H_PT = 280
+
+# Target box on the dedicated evidence page (full-width, near-full-height,
+# leaving room for caption + footer chrome).
+SCREENSHOT_TARGET_W_PT = CONTENT_WIDTH
+SCREENSHOT_TARGET_H_PT = 600
+
+# Minimum source-image resolution. Anything smaller is already too
+# low-res to be useful even at full page width.
+SCREENSHOT_MIN_NATIVE_PX = 600

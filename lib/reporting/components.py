@@ -25,6 +25,7 @@ from __future__ import annotations
 import io
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Iterable, List, Optional
 
 from PIL import Image as PILImage
@@ -488,18 +489,130 @@ def render_chart(spec: ChartSpec, styles: dict,
 
 
 # ---------------------------------------------------------------------------
-# Per-section page
+# Per-section rendering — opener page + (optional) evidence page
+# ---------------------------------------------------------------------------
+#
+# Layout philosophy:
+#   - The OPENER page is the executive view: headline, KPIs, key insights.
+#     No tiny illegible thumbnails. Reads cleanly even when there's empty
+#     space at the bottom.
+#   - The EVIDENCE page is the supporting view: full-width source
+#     screenshot (only if it'll be readable), tables, and reconstructed
+#     charts. Skipped entirely if the section has no visual evidence.
+#
+# A decision layer (`_screenshot_decision`) inspects the screenshot
+# against the layout budget and picks one of three outcomes:
+#   1. RENDER — the screenshot is shown full-size on its own page.
+#   2. OMIT   — the screenshot exists but can't be shown legibly; the
+#               evidence page falls back to charts/tables/just-skip.
+#   3. NONE   — there is no screenshot at all.
 # ---------------------------------------------------------------------------
 
-def render_section(section: ReportSection, styles: dict,
-                   *, page_no: int, total_pages: int) -> List:
-    """Render one report section (one dashboard page) as a self-contained block."""
+from enum import Enum
+
+
+class _ScreenshotDecision(Enum):
+    RENDER = "render"
+    OMIT   = "omit"
+    NONE   = "none"
+
+
+def is_screenshot_legible(image_path: str,
+                          target_w_pt: float = t.SCREENSHOT_TARGET_W_PT,
+                          target_h_pt: float = t.SCREENSHOT_TARGET_H_PT) -> bool:
+    """Return True if a screenshot rendered at the target box would be readable.
+
+    Three conditions must all hold:
+      1. The image file exists and opens.
+      2. The target box is at least the configured minimum (so that text
+         labels inside the dashboard remain visible after scaling).
+      3. The source image has at least the minimum native resolution
+         (otherwise the image is already too low-res to enlarge).
+    """
+    if target_w_pt < t.SCREENSHOT_MIN_W_PT or target_h_pt < t.SCREENSHOT_MIN_H_PT:
+        return False
+    try:
+        with PILImage.open(image_path) as im:
+            w, h = im.size
+    except (OSError, ValueError):
+        return False
+    if max(w, h) < t.SCREENSHOT_MIN_NATIVE_PX:
+        return False
+    return True
+
+
+def should_render_source_screenshot(section: ReportSection) -> _ScreenshotDecision:
+    """Decide whether a section's source screenshot makes it into the PDF."""
+    if not section.screenshot_path:
+        return _ScreenshotDecision.NONE
+    if not Path(section.screenshot_path).exists():
+        return _ScreenshotDecision.NONE
+    if is_screenshot_legible(section.screenshot_path):
+        return _ScreenshotDecision.RENDER
+    return _ScreenshotDecision.OMIT
+
+
+def _section_has_evidence(section: ReportSection,
+                          screenshot_decision: _ScreenshotDecision) -> bool:
+    """True if the section has any visual evidence worth its own page."""
+    if screenshot_decision is _ScreenshotDecision.RENDER:
+        return True
+    return bool(section.tables or section.charts)
+
+
+def render_source_screenshot(section: ReportSection, styles: dict,
+                             target_w_pt: float = t.SCREENSHOT_TARGET_W_PT,
+                             target_h_pt: float = t.SCREENSHOT_TARGET_H_PT
+                             ) -> Optional[Flowable]:
+    """Render the screenshot at the target evidence-page size, with caption."""
+    img = _fit_image_pt(section.screenshot_path,
+                        max_w_pt=target_w_pt, max_h_pt=target_h_pt)
+    if img is None:
+        return None
+    return KeepTogether([
+        img,
+        Spacer(1, t.SPACE_XS),
+        Paragraph("Source dashboard page", styles["caption"]),
+    ])
+
+
+def render_visual_evidence_block(section: ReportSection,
+                                 styles: dict) -> List[Flowable]:
+    """Tables + reconstructed charts as evidence-page flowables."""
+    out: List[Flowable] = []
+
+    for spec in section.tables:
+        block: List[Flowable] = []
+        if spec.title:
+            block.append(Paragraph(_escape(spec.title), styles["subheading"]))
+        tbl = render_table(spec, styles)
+        if tbl is not None:
+            block.append(tbl)
+            out.append(KeepTogether(block))
+            out.append(Spacer(1, t.SPACE_M))
+
+    # Charts carry their own embedded title; don't duplicate it here.
+    for spec in section.charts:
+        chart = render_chart(spec, styles)
+        if chart is not None:
+            out.append(chart)
+            out.append(Spacer(1, t.SPACE_M))
+
+    return out
+
+
+def render_section_opener(section: ReportSection, styles: dict,
+                          *, page_no: int, total_pages: int) -> List:
+    """Executive view of a section: headline + KPIs + key insights only.
+
+    Never renders the source screenshot. If the source content is missing
+    ("Insufficient data for analysis"), shows a friendly callout instead.
+    """
     eyebrow = f"PAGE {page_no:02d} OF {total_pages:02d}"
     out: List = []
     out.extend(render_section_header(eyebrow, section.title, section.headline,
                                      styles))
 
-    # "Insufficient data" pages — friendly callout instead of empty space
     if section.headline.strip().lower() == "insufficient data for analysis":
         out.append(render_callout(
             "This page did not expose enough quantitative data for a "
@@ -511,50 +624,78 @@ def render_section(section: ReportSection, styles: dict,
         out.append(PageBreak())
         return out
 
-    # KPI strip (full width)
     if section.kpis:
         out.extend(render_kpi_strip(section.kpis, styles))
         out.append(Spacer(1, t.SPACE_M))
 
-    # Source screenshot (caption underneath)
-    if section.screenshot_path:
-        img = _fit_image_pt(section.screenshot_path,
-                            max_w_pt=t.CONTENT_WIDTH,
-                            max_h_pt=t.SCREENSHOT_MAX_H_PT)
-        if img is not None:
-            out.append(KeepTogether([
-                img,
-                Paragraph("Source: dashboard page", styles["caption"]),
-            ]))
-            out.append(Spacer(1, t.SPACE_M))
-
-    # Key insights as cards
     if section.bullets:
         out.append(Paragraph("Key Insights", styles["subheading"]))
         for bullet in section.bullets:
             out.append(render_insight_card(bullet, styles, accent=t.ACCENT))
             out.append(Spacer(1, t.SPACE_S))
 
-    # Tables (preserved as tables, never collapsed)
-    for spec in section.tables:
-        block: List[Flowable] = []
-        if spec.title:
-            block.append(Paragraph(_escape(spec.title), styles["subheading"]))
-        tbl = render_table(spec, styles)
-        if tbl is not None:
-            block.append(tbl)
-            out.append(KeepTogether(block))
-            out.append(Spacer(1, t.SPACE_M))
-
-    # Other charts — the chart spec's title is rendered inside the
-    # matplotlib figure, so don't duplicate it here.
-    for spec in section.charts:
-        chart = render_chart(spec, styles)
-        if chart is not None:
-            out.append(chart)
-            out.append(Spacer(1, t.SPACE_M))
-
     out.append(PageBreak())
+    return out
+
+
+def render_section_evidence(section: ReportSection, styles: dict,
+                            *, page_no: int, total_pages: int,
+                            screenshot_decision: _ScreenshotDecision) -> List:
+    """Supporting evidence page: large screenshot + tables + charts.
+
+    Returns ``[]`` if the section has nothing worth a separate page.
+
+    Layout decisions:
+      - Screenshot ONLY: render at full target size (~600 pt tall).
+      - Screenshot + charts/tables: shrink the screenshot to a still-
+        legible mid-size (~350 pt) so the supporting visuals fit on the
+        same page. If the resulting box would be illegible, the
+        screenshot is dropped and only the charts/tables are shown.
+      - Charts/tables only: render directly, no screenshot section.
+      - Anything that doesn't fit naturally spills to the next page via
+        ReportLab's Frame overflow.
+    """
+    if not _section_has_evidence(section, screenshot_decision):
+        return []
+
+    eyebrow = f"PAGE {page_no:02d} OF {total_pages:02d}  ·  SOURCE EVIDENCE"
+    out: List = [
+        Paragraph(_escape(eyebrow), styles["section_eyebrow"]),
+        Paragraph(_escape(section.title), styles["subheading"]),
+        _hairline_rule(),
+        Spacer(1, t.SPACE_M),
+    ]
+
+    if screenshot_decision is _ScreenshotDecision.RENDER:
+        # Co-locate with charts/tables when present.
+        has_other = bool(section.tables or section.charts)
+        target_h = (t.SCREENSHOT_MIN_H_PT + 70) if has_other \
+                   else t.SCREENSHOT_TARGET_H_PT
+        # Re-check legibility at the chosen target height.
+        if is_screenshot_legible(section.screenshot_path,
+                                 target_h_pt=target_h):
+            screenshot_flow = render_source_screenshot(
+                section, styles, target_h_pt=target_h,
+            )
+            if screenshot_flow is not None:
+                out.append(screenshot_flow)
+                out.append(Spacer(1, t.SPACE_L))
+
+    out.extend(render_visual_evidence_block(section, styles))
+    out.append(PageBreak())
+    return out
+
+
+def render_section(section: ReportSection, styles: dict,
+                   *, page_no: int, total_pages: int) -> List:
+    """Compose a section's opener + (optional) evidence pages."""
+    decision = should_render_source_screenshot(section)
+    out: List = []
+    out.extend(render_section_opener(section, styles,
+                                     page_no=page_no, total_pages=total_pages))
+    out.extend(render_section_evidence(section, styles,
+                                       page_no=page_no, total_pages=total_pages,
+                                       screenshot_decision=decision))
     return out
 
 
