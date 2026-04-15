@@ -71,7 +71,7 @@ the report command — the MCP needs the live model to be reachable.
 The single end-to-end command:
 
 ```bash
-python run_report.py "C:/path/to/dashboard.pbix"
+python run_report.py "C:/path/to/dashboard.pbix" --prepare
 ```
 
 This runs three stages:
