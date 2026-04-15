@@ -59,6 +59,39 @@ Dependencies auto-install on first run. Optional alias: `./install-alias.ps1`
 
 ---
 
+## Report Mode (PDF Output)
+
+Generate a **PDF report** instead of a PPTX deck. Reuses the same extraction and AI-analysis pipeline; swaps the deck-oriented output for a structured, paginated report.
+
+```bash
+# Auto-save <input_dir>/<input_stem>_report.pdf
+python run_report.py --input "C:\path\to\dashboard.pbix"
+
+# Custom output path
+python run_report.py --input "C:\path\to\dashboard.pbix" --output "C:\out\Q2_report.pdf"
+
+# Prompt interactively for save location
+python run_report.py --input "C:\path\to\dashboard.pbip" --ask-output
+
+# Re-render only (reuse existing temp/insights.json)
+python run_report.py --build --input "C:\path\to\dashboard.pbix"
+```
+
+**What's in the PDF:**
+1. Cover page with title, subtitle, and source metadata
+2. Executive summary and recommendations
+3. One section per dashboard page — headline, KPI strip, source screenshot, key insights, tables, charts
+4. Appendix with numbers cited per page
+
+**Save-location rules:**
+- `--output` provided → use it
+- Otherwise → save next to the input as `<stem>_report.pdf`
+- Add `--ask-output` in a terminal to override interactively
+
+Accepts the same inputs as the deck tool: `.pbix`, `.pbip` (file or folder), `.pdf`, `.pptx`.
+
+---
+
 ## Advanced Options
 
 ### Vector Charts
@@ -131,13 +164,15 @@ Without MCP installed, PBIP/PBIX falls back to image-only analysis automatically
 
 | File | Purpose |
 |---|---|
-| `convert_dashboard.py` | Main entry point — extract, analyze, build |
+| `convert_dashboard.py` | Deck entry point — extract, analyze, build PPTX |
+| `run_report.py` | Report entry point — extract, analyze, build PDF |
 | `run_pipeline.py` | Single-command wrapper (deps + convert + validate) |
 | `setup_pbi_mcp.py` | One-time MCP server setup for PBIP/PBIX mode |
 | `lib/extraction/` | Source file parsing (PDF, PPTX, PBIP, PBIX, OCR) |
 | `lib/rendering/builder.py` | Slide layout and PPTX assembly |
 | `lib/rendering/chart_builder_mpl.py` | Vector chart rendering (matplotlib) |
 | `lib/rendering/validator.py` | Constitution compliance checker |
+| `lib/reporting/` | PDF report rendering (ReportLab) |
 | `CLAUDE.md` / `COPILOT.md` | AI workflow instructions |
 
 </details>

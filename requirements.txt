@@ -14,3 +14,6 @@ markitdown>=0.0.1
 
 # Chart rendering (matplotlib PNG path)
 matplotlib>=3.7.0
+
+# PDF report generation (run_report.py)
+reportlab>=4.0.0
