@@ -16,6 +16,59 @@ import numpy as np
 
 from lib.analysis.insights import ChartSpec
 
+
+# ---------------------------------------------------------------------------
+# Minimal/clean chart aesthetic — applied globally via rcParams.
+#
+# Goals (per design system):
+#   - subtle axis styling, no top/right spines
+#   - faint horizontal gridlines only (no vertical clutter)
+#   - tight, readable type scale matching the report body
+#   - no boxed legends — use frameless, transparent legends
+# ---------------------------------------------------------------------------
+
+_FONT_FAMILY = ["Inter", "Helvetica", "Arial", "DejaVu Sans"]
+
+matplotlib.rcParams.update({
+    "font.family":         "sans-serif",
+    "font.sans-serif":     _FONT_FAMILY,
+    "font.size":           9.0,
+    "axes.titlesize":      10.5,
+    "axes.titleweight":    "bold",
+    "axes.titlepad":       10,
+    "axes.labelsize":      8.5,
+    "axes.labelcolor":     "#4B5563",
+    "axes.edgecolor":      "#D1D5DB",
+    "axes.linewidth":      0.6,
+    "axes.spines.top":     False,
+    "axes.spines.right":   False,
+    "axes.spines.left":    True,
+    "axes.spines.bottom":  True,
+    "axes.grid":           True,
+    "axes.grid.axis":      "y",
+    "axes.axisbelow":      True,
+    "grid.color":          "#E5E7EB",
+    "grid.linestyle":      "-",
+    "grid.linewidth":      0.5,
+    "grid.alpha":          0.7,
+    "xtick.color":         "#6B7280",
+    "ytick.color":         "#6B7280",
+    "xtick.labelsize":     8.0,
+    "ytick.labelsize":     8.0,
+    "xtick.major.size":    0,    # no tick marks
+    "ytick.major.size":    0,
+    "xtick.major.pad":     6,
+    "ytick.major.pad":     4,
+    "legend.frameon":      False,
+    "legend.fontsize":     8.0,
+    "legend.handletextpad": 0.4,
+    "figure.facecolor":    "white",
+    "axes.facecolor":      "white",
+    "savefig.facecolor":   "white",
+    "savefig.bbox":        "tight",
+    "savefig.pad_inches":  0.05,
+})
+
 # ---------------------------------------------------------------------------
 # PBI-matching color palettes (hex strings for matplotlib)
 # ---------------------------------------------------------------------------

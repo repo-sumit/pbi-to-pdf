@@ -1,37 +1,44 @@
 """
 Report schema — adapts insights.json into a normalized report structure.
 
-The canonical analyst output is still temp/insights.json (same file Claude/Copilot
-produce for the deck flow). This module reads that JSON plus temp/analysis_request.json
-and exposes an in-memory structure that's easy for the PDF renderer to consume:
+The canonical analyst output is ``temp/insights.json``. This module reads
+that JSON plus ``temp/analysis_request.json`` and exposes an in-memory
+structure the PDF renderer (``lib.reporting.components``) consumes:
 
     ReportData
       ├── metadata        (source, timestamps, type)
       ├── title/subtitle  (from insights deck_title/deck_subtitle)
+      ├── cover_kpis      [ChartSpec]   — optional, top-of-report KPI strip
       ├── executive_summary [str]
-      ├── recommendations   [str]
+      ├── recommendations   [Recommendation]   — text + optional priority
       ├── sections [ReportSection]
       │     ├── title, headline
       │     ├── screenshot_path
-      │     ├── kpis   (derived from bullet_points where chart.type ∈ {kpi, kpi_row})
-      │     ├── tables (derived from bullet_points where chart.type == table)
-      │     ├── charts (other chart specs)
-      │     └── bullets (all text bullets, bold || detail split)
-      └── appendix (numbers_used per section, flat)
+      │     ├── kpis   (chart.type ∈ {kpi, kpi_row})
+      │     ├── tables (chart.type == table)
+      │     ├── charts (everything else)
+      │     └── bullets (text bullets, bold || detail split)
+      └── numbers_used (per section, surfaced in the appendix)
 
-No new JSON file is written — insights.json stays canonical. report metadata
-(generated_at, input_path, source_type) is captured at runtime.
+No new JSON file is written — insights.json stays canonical. Report
+metadata (generated_at, input_path, source_type) is captured at runtime.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from lib.analysis.insights import BulletPoint, ChartSpec, parse_bullet_points
+from lib.analysis.insights import (
+    BulletPoint,
+    ChartSpec,
+    parse_bullet_points,
+    parse_chart_spec,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +64,46 @@ class ReportBullet:
         if "||" in text:
             bold, _, detail = text.partition("||")
             return cls(bold=bold.strip(), detail=detail.strip())
+        # Fall back to splitting on the first em-dash / arrow / colon when
+        # the analyst forgot the '||' separator.
+        for sep in ("→", "->", "—", " - ", ": "):
+            if sep in text:
+                head, _, tail = text.partition(sep)
+                head, tail = head.strip(), tail.strip()
+                if head and tail:
+                    return cls(bold=head, detail=tail)
         return cls(bold=text.strip(), detail="")
+
+
+@dataclass
+class Recommendation:
+    text: str
+    priority: Optional[str] = None   # "High" | "Medium" | "Low" | "Critical" | None
+
+    @classmethod
+    def from_text(cls, text: str) -> "Recommendation":
+        """Parse optional priority prefix from a recommendation string.
+
+        Supported forms (case-insensitive):
+          "[High] do the thing"
+          "(Priority: Medium) do the thing"
+          "High: do the thing"
+          "do the thing"   (no priority)
+        """
+        if not text:
+            return cls(text="")
+
+        patterns = [
+            re.compile(r"^\[\s*(?P<p>critical|high|medium|low)\s*\]\s*(?P<rest>.+)$", re.I),
+            re.compile(r"^\(\s*(?:priority\s*[:\-]\s*)?(?P<p>critical|high|medium|low)\s*\)\s*(?P<rest>.+)$", re.I),
+            re.compile(r"^(?P<p>critical|high|medium|low)\s*[:\-]\s*(?P<rest>.+)$", re.I),
+        ]
+        for pat in patterns:
+            m = pat.match(text)
+            if m:
+                return cls(text=m.group("rest").strip(),
+                           priority=m.group("p").strip().capitalize())
+        return cls(text=text.strip(), priority=None)
 
 
 @dataclass
@@ -79,8 +125,9 @@ class ReportData:
     title: str
     subtitle: str
     executive_summary: List[str]
-    recommendations: List[str]
+    recommendations: List[Recommendation]
     sections: List[ReportSection]
+    cover_kpis: List[ChartSpec] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -215,11 +262,33 @@ def build_report_data(
 
     sections.sort(key=lambda s: s.slide_number)
 
+    # Cover KPI strip — explicit if provided, else auto-derive from the
+    # first section's KPI specs (if any).
+    cover_kpis: List[ChartSpec] = []
+    raw_cover = insights_data.get("cover_kpis")
+    if raw_cover:
+        for raw in raw_cover:
+            spec = parse_chart_spec(raw) if isinstance(raw, dict) else None
+            if spec is not None:
+                cover_kpis.append(spec)
+    else:
+        for section in sections:
+            if section.kpis:
+                cover_kpis = list(section.kpis)
+                break
+
+    recommendations = [
+        Recommendation.from_text(str(r))
+        for r in insights_data.get("recommendations", [])
+        if r
+    ]
+
     return ReportData(
         metadata=metadata,
         title=insights_data.get("deck_title") or "Dashboard Report",
         subtitle=insights_data.get("deck_subtitle") or "",
         executive_summary=list(insights_data.get("executive_summary", [])),
-        recommendations=list(insights_data.get("recommendations", [])),
+        recommendations=recommendations,
         sections=sections,
+        cover_kpis=cover_kpis,
     )

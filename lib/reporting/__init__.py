@@ -2,6 +2,7 @@
 
 from lib.reporting.report_generator import generate_report
 from lib.reporting.report_schema import (
+    Recommendation,
     ReportBullet,
     ReportData,
     ReportMetadata,
@@ -16,4 +17,5 @@ __all__ = [
     "ReportMetadata",
     "ReportSection",
     "ReportBullet",
+    "Recommendation",
 ]
