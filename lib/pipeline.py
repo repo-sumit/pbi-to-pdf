@@ -139,11 +139,19 @@ def announce_pbi_mcp_status() -> bool:
 # Stage 1: extract
 # ---------------------------------------------------------------------------
 
-def prepare_for_analysis(source_path: str) -> str:
+def prepare_for_analysis(source_path: str, capture_ui: bool = False) -> str:
     """Extract dashboard pages and write ``temp/analysis_request.json``.
 
     Dispatches to the per-format extractor and returns the absolute path
     of the request file Claude should read.
+
+    Args:
+        source_path: Path to the source file (PDF / PPTX / PBIP / PBIX).
+        capture_ui:  Forwarded to PBIP/PBIX extractors. When True, the
+                     extractor is allowed to drive Power BI Desktop via
+                     UI automation (keystrokes, focus stealing). Default
+                     is False (safe mode) — only on-disk artefacts (the
+                     .pbix ZIP, sibling PDF/PPTX exports) are used.
     """
     file_type = detect_file_type(source_path)
 
@@ -154,12 +162,12 @@ def prepare_for_analysis(source_path: str) -> str:
     if file_type == "pbip":
         announce_pbi_mcp_status()
         from lib.extraction.pbip_extractor import prepare_pbip_for_analysis
-        return prepare_pbip_for_analysis(source_path)
+        return prepare_pbip_for_analysis(source_path, capture_ui=capture_ui)
 
     if file_type == "pbix":
         announce_pbi_mcp_status()
         from lib.extraction.pbix_extractor import prepare_pbix_for_analysis
-        return prepare_pbix_for_analysis(source_path)
+        return prepare_pbix_for_analysis(source_path, capture_ui=capture_ui)
 
     # PPTX path — supported as legacy input only.
     return _prepare_pptx_for_analysis(source_path)

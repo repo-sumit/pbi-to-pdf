@@ -124,17 +124,14 @@ python run_report.py --verify
 
 A typical report contains, in order:
 
-1. **Cover** — deck title, subtitle, source name + type, generated timestamp.
-2. **Executive summary** — five synthesised findings, highest impact first.
-3. **Recommendations** — 3–5 specific, data-grounded next steps.
-4. **One section per dashboard page**:
-   - Page title + headline (the "so what?")
-   - KPI strip (when the page exposes scalar metrics)
-   - Source dashboard screenshot (with caption)
-   - "Key insights" — up to 3 bullets in `Bold || Detail` format
-   - Tables and charts rendered as crisp vector visuals
-5. **Appendix** — source metadata + every number cited, by page (so a
-   reviewer can trace each figure back to the dashboard).
+1. **Cover** — deck title, subtitle, optional KPI strip, source name + type,
+   generated timestamp.
+2. **Executive summary** — synthesised findings (cards) + recommended actions
+   (numbered, severity-coloured).
+3. **One section per dashboard page**, split into:
+   - **Opener page** — headline, KPI strip, "Key Insights" cards.
+   - **Evidence page** (only when supporting visuals exist) — source
+     screenshot at a readable size + tables + reconstructed charts.
 
 Tables stay tables, KPI groups render as one strip per page, charts
 are kept-together with their titles, and pagination flows to fill

@@ -2350,13 +2350,23 @@ def _extract_companion_images(pbip_path: Path, pbip_root: Path,
 # 5. Main entry point
 # ---------------------------------------------------------------------------
 
-def prepare_pbip_for_analysis(pbip_path: str) -> str:
+def prepare_pbip_for_analysis(pbip_path: str, capture_ui: bool = False) -> str:
     """
     Main entry point. Accepts path to a .pbip file or its parent folder.
 
     Writes:
       - temp/analysis_request.json   (same schema as PDF/PPTX pipeline)
       - temp/pbip_context.json       (enriched model data + DAX queries)
+
+    Args:
+        pbip_path:  Path to the .pbip file (or folder containing one).
+        capture_ui: When True, the extractor is allowed to drive Power BI
+                    Desktop via Win32 UI automation — sending keystrokes
+                    (File → Export → PDF) and taking foreground/topmost
+                    of the Desktop window. This can steal focus from
+                    other applications and may close VS Code if focus
+                    drifts mid-export. Default is False (safe mode):
+                    only companion exports already on disk are used.
 
     Returns path to analysis_request.json.
     """
@@ -2405,37 +2415,54 @@ def prepare_pbip_for_analysis(pbip_path: str) -> str:
     total_queries = sum(len(d['queries']) for d in dax_queries)
     print(f"  Generated {total_queries} queries across {len(dax_queries)} pages")
 
-    # Step 4: Find images for each page
+    # Step 4: Find images for each page (in priority order; UI-automation paths
+    # are gated behind capture_ui=True so the default run never steals focus
+    # from the user's other applications).
     pbip_stem = pbip_path.stem if pbip_path.suffix.lower() == '.pbip' else pbip_root.name
-    page_images = {}
+    page_images: dict = {}
 
-    # Priority 1: Export PDF from PBI Desktop via UI Automation (cleanest output)
-    print("\nAttempting PDF export from Power BI Desktop...")
-    try:
-        page_images = _export_pdf_from_pbi_desktop(
-            pbip_path, pbip_root, len(visible_pages), pbip_stem=pbip_stem
-        )
-    except KeyboardInterrupt:
-        print("  PDF export interrupted — falling back to screenshots")
-        page_images = {}
+    # Priority 1 (always safe): companion PDF/PPTX export already on disk.
+    print("\nLooking for a companion PDF/PPTX export in the same folder...")
+    page_images = _extract_companion_images(pbip_path, pbip_root, len(visible_pages))
+    if page_images:
+        matched = sum(1 for v in page_images.values() if v)
+        print(f"  Found images for {matched} of {len(visible_pages)} pages from companion file")
+    else:
+        print("  No companion export found.")
+
+    # Priority 2 (opt-in): drive Power BI Desktop via UI automation.
+    if not page_images and capture_ui:
+        print("\nUI-capture mode enabled (--capture-ui) — driving Power BI Desktop.")
+        print("  WARNING: This sends keystrokes and may steal focus from other apps.")
+        print("  Attempting PDF export from Power BI Desktop...")
+        try:
+            page_images = _export_pdf_from_pbi_desktop(
+                pbip_path, pbip_root, len(visible_pages), pbip_stem=pbip_stem
+            )
+        except KeyboardInterrupt:
+            print("  PDF export interrupted — trying live screenshot capture")
+            page_images = {}
+
+        if not page_images:
+            print("\n  Falling back to live window screenshots...")
+            print("  (Close the Fields / Visualizations / Filters panels for cleanest results)")
+            page_images = _capture_pbi_desktop_screenshots(
+                visible_pages, pbip_stem=pbip_stem
+            )
 
     if not page_images:
-        # Priority 2: Companion PDF/PPTX already in the folder
-        print("  Checking for companion PDF/PPTX export in the same folder...")
-        page_images = _extract_companion_images(pbip_path, pbip_root, len(visible_pages))
-        if page_images:
-            matched = sum(1 for v in page_images.values() if v)
-            print(f"  Found images for {matched} of {len(visible_pages)} pages from companion file")
-
-    if not page_images:
-        # Priority 3: Live screenshots from PBI Desktop (may have gray border artifacts)
-        print("\nFalling back to screenshot capture from Power BI Desktop...")
-        print("  (Close the Fields / Visualizations / Filters panels for cleanest results)")
-        page_images = _capture_pbi_desktop_screenshots(visible_pages, pbip_stem=pbip_stem)
-
-    if not page_images:
-        print("  No images found — slides will be text-only")
-        print("  Tip: Open the .pbip in Power BI Desktop, then re-run --prepare to capture live visuals")
+        if capture_ui:
+            print("\n  WARN  No images captured even with --capture-ui.")
+            print("        Make sure Power BI Desktop is open with this .pbip loaded,")
+            print("        the data is refreshed, and the report is on the active tab.")
+        else:
+            print("\n  No source images available. Two ways to add them:")
+            print("    1. Open the .pbip in Power BI Desktop, File -> Export -> PDF,")
+            print("       save it next to the .pbip, then re-run --prepare.")
+            print("    2. Re-run with --capture-ui to let the script drive Desktop")
+            print("       directly (uses keystrokes — may steal focus from other apps).")
+            print("\n  Proceeding with DAX-only analysis — Claude will use the live")
+            print("  model via the powerbi-modeling MCP if available.")
 
     # Step 5: Write output files
     Path('temp').mkdir(exist_ok=True)

@@ -97,11 +97,12 @@ def resolve_output_path(source_path: str, output_arg: str | None,
 # Stage runners
 # ---------------------------------------------------------------------------
 
-def _run_prepare(input_path: str, context: str | None) -> int:
+def _run_prepare(input_path: str, context: str | None,
+                 capture_ui: bool) -> int:
     if not Path(input_path).exists():
         print(f"Error: input does not exist: {input_path}")
         return 1
-    request_file = prepare_for_analysis(input_path)
+    request_file = prepare_for_analysis(input_path, capture_ui=capture_ui)
     trigger_claude_analysis(request_file, context=context)
     print("\nNext: have Claude Code generate temp/insights.json, then run:")
     print(f"    python run_report.py --build --input \"{input_path}\"")
@@ -131,7 +132,8 @@ def _run_build(input_path: str | None, output_arg: str | None,
 
 
 def _run_full(input_path: str, output_arg: str | None, ask_output: bool,
-              insights_file: str, context: str | None) -> int:
+              insights_file: str, context: str | None,
+              capture_ui: bool) -> int:
     if not Path(input_path).exists():
         print(f"Error: input does not exist: {input_path}")
         return 1
@@ -157,7 +159,7 @@ def _run_full(input_path: str, output_arg: str | None, ask_output: bool,
     print("\n" + "=" * 70)
     print("STAGE 1: EXTRACT")
     print("=" * 70)
-    request_file = prepare_for_analysis(input_path)
+    request_file = prepare_for_analysis(input_path, capture_ui=capture_ui)
 
     trigger_claude_analysis(request_file, context=context)
 
@@ -229,6 +231,12 @@ Examples
     parser.add_argument("--context", default=None,
                         help="Optional analysis focus passed into Claude's prompt "
                              "(e.g. 'spotlight Finance' or 'frame for the CISO')")
+    parser.add_argument("--capture-ui", action="store_true",
+                        help="PBIP/PBIX only: allow the extractor to drive Power BI "
+                             "Desktop via UI automation (keystrokes, focus stealing) "
+                             "to grab live screenshots. Default off — the safe "
+                             "fallback is to use any companion .pdf/.pptx export "
+                             "already on disk.")
     return parser
 
 
@@ -247,7 +255,8 @@ def main() -> int:
         if not input_path:
             print("Error: --prepare requires an input path.")
             return 1
-        return _run_prepare(input_path, context=args.context)
+        return _run_prepare(input_path, context=args.context,
+                            capture_ui=args.capture_ui)
 
     if args.build:
         return _run_build(input_path, args.output, args.ask_output, args.insights)
@@ -257,7 +266,8 @@ def main() -> int:
         return 1
 
     return _run_full(input_path, args.output, args.ask_output,
-                     args.insights, context=args.context)
+                     args.insights, context=args.context,
+                     capture_ui=args.capture_ui)
 
 
 if __name__ == "__main__":

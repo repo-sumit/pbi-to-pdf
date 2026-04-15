@@ -534,7 +534,7 @@ def _classify_slide_type(title: str) -> str:
 # 6. Main entry point
 # ---------------------------------------------------------------------------
 
-def prepare_pbix_for_analysis(pbix_path: str) -> str:
+def prepare_pbix_for_analysis(pbix_path: str, capture_ui: bool = False) -> str:
     """
     Main entry point. Opens the .pbix ZIP and orchestrates all extraction steps.
 
@@ -544,11 +544,19 @@ def prepare_pbix_for_analysis(pbix_path: str) -> str:
       3. _order_pages(zf, pages)       → sorted pages (by pages.json pageOrder)
       4. _parse_model_schema(zf)       → model dict (tables/measures/relationships)
       5. _extract_static_screenshots(zf, pages) → dict {slide_num: path}
-      6. If no screenshots: _capture_pbi_desktop_screenshots(pages, pbix.stem)
+      6. If no screenshots and capture_ui=True:
+         _capture_pbi_desktop_screenshots(pages, pbix.stem)
       7. build_dax_queries(pages, model) → dax_queries list
       8. Filter hidden pages; assign slide_numbers 1..N
       9. Write temp/analysis_request.json  (source_type: "pbix")
       10. Write temp/pbip_context.json     (same schema as pbip; key "pbix_path")
+
+    Args:
+        pbix_path:  Path to a .pbix file.
+        capture_ui: When True, allow UI automation against the running
+                    Power BI Desktop window (focus stealing, click events
+                    on the canvas). Default is False (safe mode): only
+                    screenshots already embedded in the .pbix ZIP are used.
 
     Returns path to analysis_request.json.
     """
@@ -599,15 +607,29 @@ def prepare_pbix_for_analysis(pbix_path: str) -> str:
         print("\nExtracting static screenshots from PBIX...")
         page_images = _extract_static_screenshots(zf, pages)
 
-    # Step 6: If no static screenshots, try live Power BI Desktop capture
+    # Step 6: If no static screenshots, optionally fall back to UI capture.
     if not page_images:
-        print("\nNo static screenshots found — trying Power BI Desktop...")
-        page_images = _capture_pbi_desktop_screenshots(visible_pages, pbix_path.stem)
-        if page_images:
-            print(f"  Captured {len(page_images)} screenshots from Power BI Desktop")
+        if capture_ui:
+            print("\nNo static screenshots in .pbix — UI-capture mode enabled.")
+            print("  WARNING: Driving Power BI Desktop directly may steal focus")
+            print("           from other apps. Pass no flag to disable.")
+            page_images = _capture_pbi_desktop_screenshots(
+                visible_pages, pbix_path.stem
+            )
+            if page_images:
+                print(f"  Captured {len(page_images)} screenshots from Power BI Desktop")
+            else:
+                print("  WARN  No screenshots captured. Make sure Desktop is open")
+                print("        with this .pbix loaded and the report on the active tab.")
         else:
-            print("  No images found — slides will be text/DAX-only")
-            print("  Tip: Open the .pbix in Power BI Desktop, then re-run --prepare")
+            print("\nNo static screenshots embedded in this .pbix.")
+            print("  Two ways to add source visuals:")
+            print("    1. Open the .pbix in Power BI Desktop, File -> Export -> PDF,")
+            print("       save it next to the .pbix, then re-run with the .pdf as input.")
+            print("    2. Re-run with --capture-ui to drive Desktop directly")
+            print("       (uses keystrokes / focus stealing — may interrupt other apps).")
+            print("\n  Proceeding with DAX-only analysis — Claude will use the live")
+            print("  model via the powerbi-modeling MCP if available.")
 
     # Step 7 & 8: Write output files
     Path('temp').mkdir(exist_ok=True)

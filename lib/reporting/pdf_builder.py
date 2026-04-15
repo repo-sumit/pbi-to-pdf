@@ -15,6 +15,7 @@ from typing import List
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
+    PageBreak,
     PageTemplate,
 )
 from reportlab.pdfgen import canvas as rl_canvas
@@ -125,8 +126,11 @@ def render_report_pdf(report: ReportData, output_path: str) -> str:
                                                page_no=idx,
                                                total_pages=total))
 
-    # 4. Appendix
-    story.extend(components.render_appendix(report, styles))
+    # Strip any trailing PageBreak flowables so the document doesn't end
+    # on a blank page. (Each section appends a PageBreak; previously the
+    # appendix consumed it, but the appendix was removed.)
+    while story and isinstance(story[-1], PageBreak):
+        story.pop()
 
     report_name = report.title or "Dashboard Report"
     doc.build(story, canvasmaker=_canvas_factory(report_name))

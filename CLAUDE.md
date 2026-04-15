@@ -352,11 +352,11 @@ Run before saving `temp/insights.json`:
 
 ## Output specs
 
-- A4 portrait (210 mm × 297 mm), 0.55″ margins
-- Helvetica family, blue accent colours (cover #002060, accent #0072C6)
-- Page sequence: cover → executive summary → recommendations →
-  one section per dashboard page (headline, KPI strip, screenshot,
-  insights, tables, charts) → appendix (numbers cited per page)
+- A4 portrait (210 mm × 297 mm), 18 mm margins
+- Inter (when available, otherwise Helvetica), restrained blue + neutrals
+- Page sequence: cover → executive summary (findings + actions) →
+  per-section opener (headline + KPI strip + insight cards) +
+  optional evidence page (source screenshot at readable size + tables + charts)
 
 ---
 
