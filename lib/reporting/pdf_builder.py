@@ -1,7 +1,7 @@
 """
 PDF report renderer using ReportLab.
 
-Produces a portrait A-letter PDF with:
+Produces a portrait A4 PDF with:
   1. Cover page              (title, subtitle, metadata)
   2. Executive summary       (bullet list)
   3. Recommendations         (action items)
@@ -11,22 +11,28 @@ Produces a portrait A-letter PDF with:
 Charts are rendered via the existing matplotlib pipeline
 (lib.rendering.chart_builder_mpl.render_chart_to_png) so the visual style
 matches the deck output.
+
+Layout philosophy: titles stay bonded to the visual they introduce via
+KeepTogether. Charts are sized to let two fit per page when possible, and
+pages flow to fill vertical space rather than one-chart-per-page.
 """
 
 from __future__ import annotations
 
 import io
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from PIL import Image as PILImage
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import LETTER
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas as rl_canvas
 from reportlab.platypus import (
     BaseDocTemplate,
+    CondPageBreak,
     Frame,
     Image,
     KeepTogether,
@@ -60,9 +66,13 @@ LIGHT_GRAY = colors.HexColor("#D9D9D9")
 BEIGE_BG = colors.HexColor("#F5EFE7")
 WHITE = colors.white
 
-PAGE_WIDTH, PAGE_HEIGHT = LETTER
-MARGIN = 0.6 * inch
+PAGE_WIDTH, PAGE_HEIGHT = A4
+MARGIN = 0.55 * inch
 CONTENT_WIDTH = PAGE_WIDTH - 2 * MARGIN
+
+# Chart geometry — sized so two charts fit on one A4 page alongside text.
+CHART_HEIGHT_IN = 2.6    # each chart ~2.6" tall
+SCREENSHOT_MAX_H_IN = 3.2
 
 
 # ---------------------------------------------------------------------------
@@ -103,69 +113,72 @@ def _styles() -> dict:
             "h1",
             parent=base["Heading1"],
             fontName="Helvetica-Bold",
-            fontSize=18,
-            leading=22,
+            fontSize=17,
+            leading=20,
             textColor=DARK_BLUE,
-            spaceBefore=6,
-            spaceAfter=10,
+            spaceBefore=4,
+            spaceAfter=6,
+            keepWithNext=True,
         ),
         "h2": ParagraphStyle(
             "h2",
             parent=base["Heading2"],
             fontName="Helvetica-Bold",
-            fontSize=13,
-            leading=16,
+            fontSize=12,
+            leading=15,
             textColor=DARK_BLUE,
-            spaceBefore=10,
-            spaceAfter=6,
+            spaceBefore=6,
+            spaceAfter=3,
+            keepWithNext=True,
         ),
         "headline": ParagraphStyle(
             "headline",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
-            fontSize=14,
-            leading=18,
+            fontSize=13,
+            leading=16,
             textColor=ACCENT_BLUE,
-            spaceAfter=8,
+            spaceAfter=6,
+            keepWithNext=True,
         ),
         "body": ParagraphStyle(
             "body",
             parent=base["Normal"],
             fontName="Helvetica",
-            fontSize=10.5,
-            leading=14,
+            fontSize=10,
+            leading=13,
             textColor=DARK_GRAY,
-            spaceAfter=4,
+            spaceAfter=3,
         ),
         "bullet_bold": ParagraphStyle(
             "bullet_bold",
             parent=base["Normal"],
             fontName="Helvetica-Bold",
-            fontSize=11,
-            leading=14,
+            fontSize=10.5,
+            leading=13,
             textColor=DARK_BLUE,
             leftIndent=12,
             bulletIndent=0,
-            spaceAfter=2,
+            spaceAfter=1,
         ),
         "bullet_detail": ParagraphStyle(
             "bullet_detail",
             parent=base["Normal"],
             fontName="Helvetica",
-            fontSize=10,
-            leading=13,
+            fontSize=9.5,
+            leading=12,
             textColor=DARK_GRAY,
             leftIndent=12,
-            spaceAfter=6,
+            spaceAfter=4,
         ),
         "caption": ParagraphStyle(
             "caption",
             parent=base["Normal"],
             fontName="Helvetica-Oblique",
-            fontSize=9,
-            leading=12,
+            fontSize=8.5,
+            leading=11,
             textColor=MID_GRAY,
-            spaceAfter=6,
+            spaceAfter=4,
         ),
         "appendix_body": ParagraphStyle(
             "appendix_body",
@@ -379,6 +392,20 @@ def _escape(s: str) -> str:
     )
 
 
+def _format_timestamp(iso_ts: str) -> str:
+    """Turn '2026-04-15T18:03:30+05:30' into '2026-04-15 18:03' for display.
+
+    Falls back to the original string on any parse failure.
+    """
+    if not iso_ts:
+        return ""
+    try:
+        dt = datetime.fromisoformat(iso_ts)
+    except ValueError:
+        return iso_ts
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
 # ---------------------------------------------------------------------------
 # Flowable assembly
 # ---------------------------------------------------------------------------
@@ -386,23 +413,23 @@ def _escape(s: str) -> str:
 def _cover_flowables(report: ReportData, styles: dict) -> List:
     meta = report.metadata
     lines = [
-        Spacer(1, 1.6 * inch),
+        Spacer(1, 2.2 * inch),
         Paragraph(_escape(report.title), styles["cover_title"]),
     ]
     if report.subtitle:
         lines.append(Paragraph(_escape(report.subtitle), styles["cover_subtitle"]))
 
-    lines.append(Spacer(1, 0.3 * inch))
+    lines.append(Spacer(1, 0.25 * inch))
     # Accent rule
     rule = Table([[""]], colWidths=[3 * inch], rowHeights=[3])
     rule.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), ACCENT_BLUE)]))
     lines.append(rule)
-    lines.append(Spacer(1, 0.4 * inch))
+    lines.append(Spacer(1, 0.35 * inch))
 
     meta_rows = [
         ("Source file", meta.source_name),
         ("Source type", meta.source_type.upper()),
-        ("Generated", meta.generated_at),
+        ("Generated", _format_timestamp(meta.generated_at)),
     ]
     meta_tbl = Table(
         [[Paragraph(f"<b>{k}</b>", styles["cover_meta"]),
@@ -427,13 +454,13 @@ def _summary_flowables(report: ReportData, styles: dict) -> List:
         out.append(Paragraph("Executive Summary", styles["h1"]))
         for bullet in report.executive_summary:
             out.append(Paragraph(f"• {_escape(bullet)}", styles["bullet_bold"]))
-        out.append(Spacer(1, 0.2 * inch))
+        out.append(Spacer(1, 0.15 * inch))
 
     if report.recommendations:
         out.append(Paragraph("Recommendations", styles["h1"]))
         for rec in report.recommendations:
             out.append(Paragraph(f"&#187; {_escape(rec)}", styles["bullet_bold"]))
-        out.append(Spacer(1, 0.2 * inch))
+        out.append(Spacer(1, 0.15 * inch))
 
     if out:
         out.append(PageBreak())
@@ -452,42 +479,45 @@ def _section_flowables(section: ReportSection, styles: dict) -> List:
         strip = _kpi_strip(section.kpis)
         if strip is not None:
             out.append(strip)
-            out.append(Spacer(1, 0.12 * inch))
+            out.append(Spacer(1, 0.10 * inch))
 
     # Screenshot of the dashboard page (if available)
     if section.screenshot_path:
         img = _fit_image(
             section.screenshot_path,
             max_w=CONTENT_WIDTH,
-            max_h=3.6 * inch,
+            max_h=SCREENSHOT_MAX_H_IN * inch,
         )
         if img is not None:
-            out.append(img)
-            out.append(Paragraph("Source dashboard page", styles["caption"]))
-            out.append(Spacer(1, 0.1 * inch))
+            out.append(KeepTogether([img, Paragraph("Source dashboard page", styles["caption"])]))
+            out.append(Spacer(1, 0.08 * inch))
 
     # Text bullets
     if section.bullets:
         out.append(Paragraph("Key insights", styles["h2"]))
         out.extend(_bullets_flowables(section.bullets, styles))
 
-    # Tables
+    # Tables — bind title to table so they never split across pages
     for spec in section.tables:
+        block: List = []
         if spec.title:
-            out.append(Paragraph(_escape(spec.title), styles["h2"]))
+            block.append(Paragraph(_escape(spec.title), styles["h2"]))
         tbl = _table_from_spec(spec)
         if tbl is not None:
-            out.append(KeepTogether(tbl))
-            out.append(Spacer(1, 0.12 * inch))
+            block.append(tbl)
+            out.append(KeepTogether(block))
+            out.append(Spacer(1, 0.10 * inch))
 
-    # Other charts
+    # Other charts — bind title to chart image so they never split across pages
     for spec in section.charts:
+        block: List = []
         if spec.title:
-            out.append(Paragraph(_escape(spec.title), styles["h2"]))
-        chart = _chart_image(spec, width_in=CONTENT_WIDTH / inch, height_in=3.2)
+            block.append(Paragraph(_escape(spec.title), styles["h2"]))
+        chart = _chart_image(spec, width_in=CONTENT_WIDTH / inch, height_in=CHART_HEIGHT_IN)
         if chart is not None:
-            out.append(chart)
-            out.append(Spacer(1, 0.12 * inch))
+            block.append(chart)
+            out.append(KeepTogether(block))
+            out.append(Spacer(1, 0.10 * inch))
 
     out.append(PageBreak())
     return out
@@ -501,7 +531,7 @@ def _appendix_flowables(report: ReportData, styles: dict) -> List:
         ["Source name", meta.source_name],
         ["Source type", meta.source_type.upper()],
         ["Input path", meta.input_path],
-        ["Generated at", meta.generated_at],
+        ["Generated at", _format_timestamp(meta.generated_at)],
         ["Sections", str(len(report.sections))],
     ]
     tbl = Table(meta_rows, colWidths=[1.3 * inch, CONTENT_WIDTH - 1.3 * inch])
@@ -542,7 +572,7 @@ def render_report_pdf(report: ReportData, output_path: str) -> str:
 
     doc = BaseDocTemplate(
         str(out),
-        pagesize=LETTER,
+        pagesize=A4,
         leftMargin=MARGIN,
         rightMargin=MARGIN,
         topMargin=MARGIN,

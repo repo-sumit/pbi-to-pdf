@@ -350,7 +350,13 @@ def _resolve_assistant(selection: str) -> str:
         return selection
 
     # Best-effort detection for Claude Code environments.
+    # Claude Code (VS Code extension + CLI) sets CLAUDECODE=1 and
+    # CLAUDE_CODE_ENTRYPOINT in child processes. Older env var names kept
+    # for back-compat / future proofing.
     claude_markers = [
+        "CLAUDECODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_AGENT_SDK_VERSION",
         "CLAUDE_CODE",
         "ANTHROPIC_API_KEY",
         "CLAUDE_SESSION",
