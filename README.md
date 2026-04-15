@@ -1,188 +1,192 @@
-# Dashboards → Decks
+# Power BI to Exec Deck
 
-### From raw Power BI data to executive-ready presentations — in minutes.
+Turn Power BI dashboards into executive-ready PowerPoint decks and PDF reports with Claude Code or GitHub Copilot Chat.
 
-Turn Power BI dashboards into polished, insight-driven presentations automatically. No design skills, no manual slide-building, no copy-pasting numbers.
+![Demo](demo.gif)
 
-This tool works with **[GitHub Copilot Chat](#option-a--github-copilot-chat)** (in VS Code) or **[Claude Code](#option-b--claude-code-cli)** — pick whichever you already have.
+## What this project does
 
----
+- Generates executive PPTX decks from `.pdf`, `.pptx`, `.pbip`, and `.pbix` inputs
+- Generates PDF reports from the same extraction and analysis pipeline
+- Supports screenshot-based output or vector chart rendering with `--vector-charts`
+- Accepts business context so the analysis can focus on a team, theme, or time period
+- Uses Power BI MCP for exact-value analysis when working with `.pbip` or `.pbix`
 
-## Two Modes
+## Input modes
 
-| | ⚡ Quick Mode | 🔬 Deep Analysis Mode |
-|---|---|---|
-| **Input** | PDF or PPTX export | PBIP or PBIX project file |
-| **Data source** | AI reads page / slide images (OCR) | Live DAX queries via Power BI MCP (exact values) |
-| **Requires MCP?** | No | Yes ([one-time setup](#deep-analysis-setup-pbip--pbix)) — falls back to image analysis if unavailable |
-| **Time** | **~3–5 min** | **~15–20 min** |
+| Mode | Inputs | Data source | Typical use |
+|---|---|---|---|
+| Quick mode | `.pdf`, `.pptx` | Page and slide images plus OCR | Fastest path from exported dashboards to slides |
+| Deep analysis mode | `.pbip`, `.pbix` | Live DAX queries via MCP when available, otherwise image fallback | Best when you want exact numbers and richer context |
 
-> **Preferred AI model:** Claude **Opus** or **Sonnet**. Set your model in Copilot Chat settings or Claude Code config.
+## Requirements
 
----
+- Python 3.8+
+- One assistant workflow:
+  - Claude Code
+  - VS Code with GitHub Copilot Chat
+- Optional for deep analysis: Power BI Desktop and Power BI MCP
 
-## Option A — GitHub Copilot Chat
+## Setup
 
-1. `git clone https://github.com/shailendrahegde/pbi-to-exec-deck.git`
-2. Open the folder in VS Code: `code pbi-to-exec-deck`
-3. Open **Copilot Chat** → switch mode to **Agent** → *(optional)* select **Claude Sonnet/Opus**
-4. Type:
-
-> Create exec deck `"C:\path\to\dashboard.pdf"`
-
-That's it. Dependencies auto-install on first run.
-
----
-
-## Option B — Claude Code (CLI)
+Clone your repository and install the dependency profile you plan to use.
 
 ```bash
-git clone https://github.com/shailendrahegde/pbi-to-exec-deck.git
-cd pbi-to-exec-deck
+git clone <your-repo-url>
+cd <repo-folder>
+
+# For Claude Code
+python check_setup.py --profile claude --auto-install
+
+# For GitHub Copilot Chat
+python check_setup.py --profile copilot --auto-install
+```
+
+Manual install also works. Install the profile you need:
+
+```bash
+# Claude / general CLI usage
+pip install -r requirements.txt
+
+# Copilot-oriented extraction extras
+pip install -r requirements-copilot.txt
+```
+
+## Assistant workflows
+
+### Claude Code
+
+```text
 claude
 > create exec deck "C:\path\to\dashboard.pdf"
 ```
 
-![Demo](demo.gif)
+### GitHub Copilot Chat
 
-Dependencies auto-install on first run. Optional alias: `./install-alias.ps1`
+1. Open the folder in VS Code.
+2. Open Copilot Chat and switch to Agent mode.
+3. Prompt:
 
----
+```text
+Create exec deck "C:\path\to\dashboard.pdf"
+```
 
-## What You Get
+## CLI usage
 
-- **16:9 widescreen** slides with dark professional theme
-- **PBI page screenshots** embedded (or **vector charts** with `--vector-charts`)
-- **Insight-driven headlines** that answer "so what?" for each dashboard page
-- **Executive summary** and **action recommendations** grounded in data
-- **Constitution validation** — automated quality checks on the output
-
----
-
-## Report Mode (PDF Output)
-
-Generate a **PDF report** instead of a PPTX deck. Reuses the same extraction and AI-analysis pipeline; swaps the deck-oriented output for a structured, paginated report.
+### Build an executive deck
 
 ```bash
-# Auto-save <input_dir>/<input_stem>_report.pdf
+python convert_dashboard.py "C:\path\to\dashboard.pbip"
+python convert_dashboard.py "C:\path\to\dashboard.pbip" --vector-charts
+python convert_dashboard.py "C:\path\to\dashboard.pptx" --output "C:\out\executive.pptx"
+python convert_dashboard.py "C:\path\to\dashboard.pdf" --context "Focus on Finance and month-over-month change"
+```
+
+### Run the full setup + conversion pipeline
+
+```bash
+python run_pipeline.py --source "C:\path\to\dashboard.pbix" --assistant claude
+python run_pipeline.py --source "C:\path\to\dashboard.pdf" --assistant copilot --output "C:\out\deck.pptx"
+```
+
+### Build a PDF report
+
+```bash
+# Auto-save next to the input as <stem>_report.pdf
 python run_report.py --input "C:\path\to\dashboard.pbix"
 
 # Custom output path
 python run_report.py --input "C:\path\to\dashboard.pbix" --output "C:\out\Q2_report.pdf"
 
-# Prompt interactively for save location
+# Prompt for save location
 python run_report.py --input "C:\path\to\dashboard.pbip" --ask-output
 
-# Re-render only (reuse existing temp/insights.json)
+# Re-render only from an existing temp/insights.json
 python run_report.py --build --input "C:\path\to\dashboard.pbix"
 ```
 
-**What's in the PDF:**
-1. Cover page with title, subtitle, and source metadata
-2. Executive summary and recommendations
-3. One section per dashboard page — headline, KPI strip, source screenshot, key insights, tables, charts
-4. Appendix with numbers cited per page
+## Deep analysis setup for PBIP and PBIX
 
-**Save-location rules:**
-- `--output` provided → use it
-- Otherwise → save next to the input as `<stem>_report.pdf`
-- Add `--ask-output` in a terminal to override interactively
+For `.pbip` and `.pbix`, this project can connect to Power BI Desktop through the Power BI MCP server and query exact values using DAX.
 
-Accepts the same inputs as the deck tool: `.pbix`, `.pbip` (file or folder), `.pdf`, `.pptx`.
-
----
-
-## Advanced Options
-
-### Vector Charts
-
-By default, the deck embeds PBI screenshots. Add `--vector-charts` to generate clean charts (bar, column, line, donut, KPI tiles, treemap, table, etc.) directly from the data.
-
-**When to use:** screenshots are low-quality, you want resolution-independent visuals, or exact DAX data is available.
-
-> Create exec deck `"C:\path\to\report.pbip"` --vector-charts
-
-### Contextual Focus
-
-Add context to steer the analysis toward a specific department, audience, or theme:
-
-> Create exec deck `"C:\path\to\report.pbip"` — focus on the Finance department
-
-> Create exec deck `"C:\path\to\dashboard.pdf"` — this is for the CISO; emphasize security and compliance metrics
-
-> Create exec deck `"C:\path\to\report.pbip"` --vector-charts — focus on May 2025 month-over-month changes
-
-> Create exec deck `"C:\path\to\report.pbip"` --vector-charts — focus on HR and Operations; frame recommendations around reducing onboarding time
-
-Everything after the file path is treated as analyst guidance — adjust framing, tone, and priorities as needed.
-
----
-
-## Deep Analysis Setup (PBIP / PBIX)
-
-For `.pbip` or `.pbix` files, the tool connects to Power BI Desktop via the **Power BI MCP** server and queries exact values using DAX.
-
-> **Prefer `.pbip` over `.pbix`** — PBIP exposes measure DAX expressions so the AI understands how each KPI is calculated.
+`.pbip` is usually the better input because it exposes measure definitions more clearly than `.pbix`.
 
 ### One-time setup
 
 ```bash
-python setup_pbi_mcp.py          # Download & register MCP server
-python setup_pbi_mcp.py --check  # Verify installation
+python setup_pbi_mcp.py
+python setup_pbi_mcp.py --check
 ```
 
-Downloads the official [microsoft/powerbi-modeling-mcp](https://github.com/microsoft/powerbi-modeling-mcp) server and registers it in `.mcp.json`. Runs locally — no data leaves your machine.
+### Workflow
 
-### Running
+1. Open the report in Power BI Desktop.
+2. Restart your assistant session.
+3. Run the deck or report command again.
 
-1. Open your report in **Power BI Desktop**
-2. Restart your assistant session (Claude Code: `/exit` → `claude`; Copilot: reload window)
-3. `Create exec deck "C:\path\to\report.pbip"`
+If MCP is not available, `.pbip` and `.pbix` inputs fall back to image-based analysis automatically.
 
-Without MCP installed, PBIP/PBIX falls back to image-only analysis automatically.
+## Output options
 
----
+### Vector charts
 
-<details>
-<summary><strong>Supported Inputs</strong></summary>
+By default, deck generation embeds Power BI page screenshots. Add `--vector-charts` to render charts directly from the extracted data.
 
-| Input | Format | Mode | Data Source |
-|---|---|---|---|
-| **PDF export** | `.pdf` | ⚡ Quick | AI reads page images |
-| **PPTX export** | `.pptx` | ⚡ Quick | AI reads slide images + OCR |
-| **PBIP project** | `.pbip` | 🔬 Deep | Live DAX queries via MCP + images |
-| **PBIX file** | `.pbix` | 🔬 Deep | Live DAX queries via MCP + images |
+Use this when:
 
-**How to export from Power BI (Quick Mode):**
-- **PDF** — Power BI Desktop: `File → Export → Export to PDF`
-- **PPTX** — Power BI Service: `File → Export → PowerPoint`
+- The original screenshots are low quality
+- You want resolution-independent charts in the final deck
+- Exact data is available through MCP and you want cleaner visuals
 
-</details>
+### Context-aware analysis
 
-<details>
-<summary><strong>Key Files</strong></summary>
+Add `--context` or include natural-language guidance in your assistant prompt to steer the analysis.
 
-| File | Purpose |
+Examples:
+
+```text
+Create exec deck "C:\path\to\report.pbip" --vector-charts
+Create exec deck "C:\path\to\dashboard.pdf" --context "Audience is the CISO; emphasize security and compliance metrics"
+Create exec deck "C:\path\to\report.pbip" --context "Focus on HR and Operations; frame recommendations around reducing onboarding time"
+```
+
+## Supported inputs
+
+| Input | Format | Typical mode |
+|---|---|---|
+| PDF export | `.pdf` | Quick mode |
+| PowerPoint export | `.pptx` | Quick mode |
+| Power BI project | `.pbip` | Deep analysis mode |
+| Power BI file | `.pbix` | Deep analysis mode |
+
+Quick export options from Power BI:
+
+- PDF: `File -> Export -> Export to PDF`
+- PPTX: `File -> Export -> PowerPoint`
+
+## Project layout
+
+| Path | Purpose |
 |---|---|
-| `convert_dashboard.py` | Deck entry point — extract, analyze, build PPTX |
-| `run_report.py` | Report entry point — extract, analyze, build PDF |
-| `run_pipeline.py` | Single-command wrapper (deps + convert + validate) |
-| `setup_pbi_mcp.py` | One-time MCP server setup for PBIP/PBIX mode |
-| `lib/extraction/` | Source file parsing (PDF, PPTX, PBIP, PBIX, OCR) |
-| `lib/rendering/builder.py` | Slide layout and PPTX assembly |
-| `lib/rendering/chart_builder_mpl.py` | Vector chart rendering (matplotlib) |
-| `lib/rendering/validator.py` | Constitution compliance checker |
-| `lib/reporting/` | PDF report rendering (ReportLab) |
-| `CLAUDE.md` / `COPILOT.md` | AI workflow instructions |
+| `convert_dashboard.py` | Main deck-generation entry point |
+| `run_report.py` | PDF report entry point |
+| `run_pipeline.py` | Setup + conversion wrapper |
+| `setup_pbi_mcp.py` | Power BI MCP installer and checker |
+| `check_setup.py` | Dependency validation and auto-install helper |
+| `lib/extraction/` | Input parsing and extraction |
+| `lib/rendering/` | PowerPoint assembly and validation |
+| `lib/reporting/` | PDF report rendering |
+| `docs/` | Design notes, structure, and quality rules |
+| `CLAUDE.md` | Claude Code workflow guidance |
+| `COPILOT.md` | Copilot workflow guidance |
 
-</details>
+## Docs
 
----
+- [Project structure](docs/PROJECT_STRUCTURE.md)
+- [Executive slides feature](docs/EXECUTIVE_SLIDES_FEATURE.md)
+- [Constitution compliance](docs/CONSTITUTION_COMPLIANCE.md)
+- [Dashboard reading rules](docs/DASHBOARD_READING_RULES.md)
 
 ## License
 
-MIT — use freely within your organization.
-
----
-
-**Found this useful?** [Star the repo](https://github.com/shailendrahegde/pbi-to-exec-deck) to help others find it.
+MIT
