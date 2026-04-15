@@ -1,4 +1,4 @@
-"""Report-generation package. Sibling to lib.rendering (deck path)."""
+"""PDF report generation package — primary output of pbi-to-pdf."""
 
 from lib.reporting.report_generator import generate_report
 from lib.reporting.report_schema import (

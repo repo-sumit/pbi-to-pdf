@@ -8,9 +8,8 @@ Produces a portrait A4 PDF with:
   4. Per-page sections       (headline, screenshot, KPIs, tables, charts, bullets)
   5. Appendix                (source metadata + numbers cited per page)
 
-Charts are rendered via the existing matplotlib pipeline
-(lib.rendering.chart_builder_mpl.render_chart_to_png) so the visual style
-matches the deck output.
+Charts are rendered via the matplotlib pipeline in
+``lib.reporting.charts.render_chart_to_png``.
 
 Layout philosophy: titles stay bonded to the visual they introduce via
 KeepTogether. Charts are sized to let two fit per page when possible, and
@@ -50,7 +49,7 @@ from lib.reporting.report_schema import (
     ReportData,
     ReportSection,
 )
-from lib.rendering.chart_builder_mpl import render_chart_to_png
+from lib.reporting.charts import render_chart_to_png
 
 
 # ---------------------------------------------------------------------------
@@ -578,7 +577,7 @@ def render_report_pdf(report: ReportData, output_path: str) -> str:
         topMargin=MARGIN,
         bottomMargin=MARGIN,
         title=report.title or "Dashboard Report",
-        author="pbi-to-exec-deck",
+        author="pbi-to-pdf",
     )
 
     frame = Frame(

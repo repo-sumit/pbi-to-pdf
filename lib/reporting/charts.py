@@ -1,12 +1,9 @@
 """
-Matplotlib Chart Renderer — high-quality PNG output for PPTX embedding.
+Matplotlib chart renderer — high-quality PNG output for PDF embedding.
 
-All 23 chart types (+ aliases) are rendered as 200 DPI PNG images, embedded via
-slide.shapes.add_picture(). This gives full pixel-level control:
-antialiasing, per-point colors, proper label placement, and chart types
-that python-pptx renders coarsely (scatter, bubble, treemap, funnel, gauge).
-
-Both renderers coexist. builder.py routes to this module when use_mpl=True.
+All ~23 chart types (+ aliases) are rendered as crisp PNG images that the
+PDF builder embeds at native resolution. Headless matplotlib backend so the
+renderer works in CI / non-interactive sessions.
 """
 
 import io

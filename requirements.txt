@@ -1,19 +1,16 @@
-# Power BI to Executive Deck Converter - Dependencies
+# pbi-to-pdf — Power BI dashboards to A4 PDF reports
+#
+# Core dependencies (always required)
+# ------------------------------------
+python-pptx>=0.6.21    # parse Power BI .pptx exports
+Pillow>=9.0.0          # image handling for screenshot embedding
+PyMuPDF>=1.23.0        # rasterise .pdf inputs to per-page PNGs
+markitdown>=0.0.1      # text extraction fallback for .pptx inputs
+matplotlib>=3.7.0      # vector chart rendering (chart spec → PNG)
+reportlab>=4.0.0       # A4 PDF assembly
 
-# PowerPoint manipulation
-python-pptx>=0.6.21
-
-# Image processing
-Pillow>=9.0.0
-
-# PDF extraction
-PyMuPDF>=1.23.0
-
-# Markdown conversion
-markitdown>=0.0.1
-
-# Chart rendering (matplotlib PNG path)
-matplotlib>=3.7.0
-
-# PDF report generation (run_report.py)
-reportlab>=4.0.0
+# Optional (.pbix / .pbip live screenshot capture on Windows)
+# Install with:  pip install pywin32 pywinauto pypdfium2
+# pywin32>=306
+# pywinauto>=0.6.8
+# pypdfium2>=4.30.0

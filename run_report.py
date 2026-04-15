@@ -1,59 +1,78 @@
 #!/usr/bin/env python3
 """
-Dashboard → PDF Report
+pbi-to-pdf — Power BI dashboards to A4 PDF reports, designed for Claude Code.
 
-Report-mode sibling of convert_dashboard.py. Reuses the extraction and
-insight-generation pipeline; swaps the final PPTX deck for a PDF report.
+Three-stage pipeline orchestrated from a single CLI:
 
-Usage:
-    python run_report.py --input "path/to/dashboard.pbix"
-    python run_report.py --input "path/to/dashboard.pdf" --output "out/report.pdf"
-    python run_report.py --build --input "path/to/dashboard.pbix"   # reuse existing temp/insights.json
+  1. Extract  — dump dashboard pages to temp/slide_N.png and write
+                temp/analysis_request.json (PBIP/PBIX also writes
+                temp/pbip_context.json for live DAX queries via MCP).
+  2. Analyse  — Claude Code reads the screenshots / live model and writes
+                temp/insights.json.
+  3. Build    — render the polished portrait A4 PDF report.
 
-Save-location rules:
-    1. If --output is passed, use it.
-    2. Else, default to   <input_dir>/<input_stem>_report.pdf
-    3. If --ask-output (and a TTY is attached), prompt for an override.
+USAGE
+    # End-to-end (default):
+    python run_report.py "C:/path/to/dashboard.pbix"
+
+    # Choose the output location:
+    python run_report.py "dashboard.pdf" --output "out/Q2_report.pdf"
+
+    # Be prompted for the save location (interactive TTY only):
+    python run_report.py "dashboard.pbip" --ask-output
+
+    # Stage 1 only (extract):
+    python run_report.py "dashboard.pbix" --prepare
+
+    # Stage 3 only (re-render from existing temp/insights.json):
+    python run_report.py --build --input "dashboard.pbix"
+
+    # Stage 2.5 only (verify a hand-edited insights.json):
+    python run_report.py --verify
+
+OUTPUT
+    Default save path:  <input_dir>/<input_stem>_report.pdf
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import time
 from pathlib import Path
 
-# Reuse the deck tool's extract + analyze trigger helpers.
-from convert_dashboard import (
-    _resolve_assistant,
+from lib.pipeline import (
     detect_file_type,
     prepare_for_analysis,
-    show_copilot_instructions,
     trigger_claude_analysis,
+    verify_insights,
+    wait_for_insights,
 )
 from lib.reporting import generate_report
 
 
 # ---------------------------------------------------------------------------
-# Output-path logic
+# Output path resolution
 # ---------------------------------------------------------------------------
 
 def default_report_path(source_path: str) -> Path:
-    """Compute the default report output path next to the source input."""
+    """Default save path:  <input_dir>/<input_stem>_report.pdf."""
     source = Path(source_path)
-
     if source.is_dir():
         pbip_files = list(source.glob("*.pbip"))
         stem = pbip_files[0].stem if pbip_files else source.name
         return source / f"{stem}_report.pdf"
-
     return source.parent / f"{source.stem}_report.pdf"
 
 
-def resolve_output_path(source_path: str, output_arg: str | None, ask: bool) -> Path:
-    """Apply the three-tier save-location rule."""
+def resolve_output_path(source_path: str, output_arg: str | None,
+                        ask: bool) -> Path:
+    """Apply the three-tier save-location rule.
+
+    1. If ``--output`` was passed, use it.
+    2. Else default to ``<input_dir>/<stem>_report.pdf``.
+    3. If ``--ask-output`` and we have a TTY, allow the user to override.
+    """
     if output_arg:
         return Path(output_arg).expanduser().resolve()
 
@@ -75,157 +94,170 @@ def resolve_output_path(source_path: str, output_arg: str | None, ask: bool) -> 
 
 
 # ---------------------------------------------------------------------------
-# Main
+# Stage runners
 # ---------------------------------------------------------------------------
 
-def _wait_for_insights(insights_path: str, max_wait: int = 300, interval: int = 2) -> bool:
-    """Poll for the analyst to drop insights.json. Returns True when ready."""
-    print("\n" + "=" * 70)
-    print("Waiting for insights file...")
-    print("=" * 70)
-
-    elapsed = 0
-    p = Path(insights_path)
-    while elapsed < max_wait:
-        if p.exists():
-            try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-                if data.get("slides"):
-                    print(f"OK analysis complete ({elapsed}s)")
-                    return True
-            except (json.JSONDecodeError, KeyError):
-                pass
-        time.sleep(interval)
-        elapsed += interval
-
-    print(f"Warning: insights file not ready after {max_wait}s.")
-    return False
+def _run_prepare(input_path: str, context: str | None) -> int:
+    if not Path(input_path).exists():
+        print(f"Error: input does not exist: {input_path}")
+        return 1
+    request_file = prepare_for_analysis(input_path)
+    trigger_claude_analysis(request_file, context=context)
+    print("\nNext: have Claude Code generate temp/insights.json, then run:")
+    print(f"    python run_report.py --build --input \"{input_path}\"")
+    return 0
 
 
-def run(args: argparse.Namespace) -> int:
-    # --- --build-only: skip extract + analyze, just render from existing insights.json
-    if args.build:
-        source_path = args.input
-        if not source_path:
-            try:
-                req = json.loads(Path("temp/analysis_request.json").read_text(encoding="utf-8"))
-                source_path = req["source_file"]
-            except (OSError, json.JSONDecodeError, KeyError):
-                print("Error: --build requires --input, or an existing temp/analysis_request.json")
-                return 1
+def _run_build(input_path: str | None, output_arg: str | None,
+               ask_output: bool, insights_file: str) -> int:
+    # Resolve the source from the request file when not explicitly given.
+    if not input_path:
+        try:
+            req = json.loads(Path("temp/analysis_request.json").read_text(encoding="utf-8"))
+            input_path = req["source_file"]
+        except (OSError, json.JSONDecodeError, KeyError):
+            print("Error: --build requires --input, or an existing temp/analysis_request.json")
+            return 1
 
-        output_path = resolve_output_path(source_path, args.output, args.ask_output)
-        generate_report(source_path, str(output_path), insights_file=args.insights)
-        return 0
-
-    # --- Full pipeline: extract → analyze → report
-    if not args.input:
-        print("Error: --input is required (path to PBIX / PBIP / PDF / PPTX source).")
+    result = verify_insights(insights_file)
+    if not result["passed"]:
+        print("\nBuild aborted — fix the errors above before rebuilding.")
         return 1
 
-    source_path = args.input
-    if not Path(source_path).exists():
-        print(f"Error: input does not exist: {source_path}")
+    output_path = resolve_output_path(input_path, output_arg, ask_output)
+    generate_report(input_path, str(output_path), insights_file=insights_file)
+    print(f"\nOK Report written: {output_path}")
+    return 0
+
+
+def _run_full(input_path: str, output_arg: str | None, ask_output: bool,
+              insights_file: str, context: str | None) -> int:
+    if not Path(input_path).exists():
+        print(f"Error: input does not exist: {input_path}")
         return 1
 
-    # Validate source type early.
     try:
-        source_type = detect_file_type(source_path)
+        source_type = detect_file_type(input_path)
     except ValueError as e:
         print(f"Error: {e}")
         return 1
 
-    output_path = resolve_output_path(source_path, args.output, args.ask_output)
+    output_path = resolve_output_path(input_path, output_arg, ask_output)
 
     print("\n" + "=" * 70)
     print("POWER BI -> PDF REPORT")
     print("=" * 70)
-    print(f"\nSource: {source_path}   ({source_type.upper()})")
+    print(f"\nSource: {input_path}   ({source_type.upper()})")
     print(f"Output: {output_path}")
-    print("\nThis will run 3 steps:")
+    print("\nStages:")
     print("  1. Extract dashboard content")
-    print("  2. AI assistant analyzes pages -> temp/insights.json")
-    print("  3. Render PDF report")
-
-    assistant = _resolve_assistant(args.assistant)
-
-    # STEP 1: Extract
-    print("\n" + "=" * 70)
-    print("STEP 1: EXTRACTING DASHBOARDS")
-    print("=" * 70)
-    request_file = prepare_for_analysis(source_path, use_text_layer=(assistant == "copilot"))
-
-    # STEP 2: Trigger analysis
-    if assistant == "copilot":
-        show_copilot_instructions(request_file, context=args.context)
-    else:
-        trigger_claude_analysis(request_file, context=args.context)
-
-    if not _wait_for_insights(args.insights):
-        if assistant == "copilot":
-            print("Run Copilot Chat to generate temp/insights.json, then re-run:")
-            print(f"    python run_report.py --build --input \"{source_path}\" "
-                  f"--output \"{output_path}\"")
-            return 0
-        print("Proceeding with whatever insights exist on disk...")
-
-    # STEP 3: Render PDF
-    print("\n" + "=" * 70)
-    print("STEP 3: BUILDING REPORT")
-    print("=" * 70)
-    generate_report(
-        source_path,
-        str(output_path),
-        insights_file=args.insights,
-        source_type=source_type,
-    )
+    print("  2. Claude Code analyses pages -> temp/insights.json")
+    print("  3. Render A4 PDF report")
 
     print("\n" + "=" * 70)
-    print("OK REPORT GENERATION COMPLETE")
+    print("STAGE 1: EXTRACT")
     print("=" * 70)
-    print(f"\nReport generated successfully: {output_path}")
+    request_file = prepare_for_analysis(input_path)
+
+    trigger_claude_analysis(request_file, context=context)
+
+    if not wait_for_insights(insights_file):
+        print("\nNo insights file appeared. To finish later, run:")
+        print(f"    python run_report.py --build --input \"{input_path}\"")
+        return 0
+
+    result = verify_insights(insights_file)
+    if not result["passed"]:
+        print("\nBuild aborted — fix the errors above and re-run with --build.")
+        return 1
+
+    print("\n" + "=" * 70)
+    print("STAGE 3: BUILD PDF")
+    print("=" * 70)
+    generate_report(input_path, str(output_path),
+                    insights_file=insights_file, source_type=source_type)
+    print(f"\nOK Report ready: {output_path}")
     return 0
 
+
+# ---------------------------------------------------------------------------
+# Argparse
+# ---------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="run_report.py",
-        description="Generate a PDF report from a Power BI dashboard source.",
+        description=(
+            "pbi-to-pdf — Power BI dashboards to A4 PDF reports, designed "
+            "for Claude Code."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Simplest: auto-saves <input_dir>/<input_stem>_report.pdf
-  python run_report.py --input "path/to/dashboard.pbix"
+Examples
+  # End-to-end (auto-saves <input_dir>/<input_stem>_report.pdf):
+  python run_report.py "C:/path/to/dashboard.pbix"
 
-  # Explicit output location:
-  python run_report.py --input "path/to/dashboard.pbix" --output "out/report.pdf"
+  # Choose output location:
+  python run_report.py "dashboard.pdf" --output "out/Q2_report.pdf"
 
-  # Prompt for save location (interactive TTY only):
-  python run_report.py --input "path/to/dashboard.pbip" --ask-output
+  # Stage 1 only (extract dashboards, print analysis prompt):
+  python run_report.py "dashboard.pbix" --prepare
 
-  # Render only (reuse existing temp/insights.json):
-  python run_report.py --build --input "path/to/dashboard.pbix"
+  # Stage 3 only (re-render from existing temp/insights.json):
+  python run_report.py --build --input "dashboard.pbix"
+
+  # Verify a hand-edited insights.json:
+  python run_report.py --verify
 """,
     )
-    parser.add_argument("--input", "-i", help="Path to PBIX / PBIP (file or folder) / PDF / PPTX")
-    parser.add_argument("--output", "-o", help="Output PDF path (default: <input_dir>/<stem>_report.pdf)")
+    parser.add_argument("input", nargs="?",
+                        help="Path to PBIX, PBIP (file or folder), PDF, or PPTX source")
+    parser.add_argument("--input", "-i", dest="input_flag",
+                        help=argparse.SUPPRESS)  # alternate -i/--input form
+    parser.add_argument("--output", "-o",
+                        help="Output PDF path (default: <input_dir>/<stem>_report.pdf)")
+    parser.add_argument("--ask-output", action="store_true",
+                        help="Prompt for save location when --output is not given")
+    parser.add_argument("--prepare", action="store_true",
+                        help="Stage 1 only — extract dashboards and print Claude prompt")
     parser.add_argument("--build", action="store_true",
-                        help="Skip extract + analyze; render from existing temp/insights.json")
+                        help="Stage 3 only — render PDF from existing temp/insights.json")
+    parser.add_argument("--verify", action="store_true",
+                        help="Verify temp/insights.json without rendering anything")
     parser.add_argument("--insights", default="temp/insights.json",
                         help="Path to insights JSON (default: temp/insights.json)")
-    parser.add_argument("--ask-output", action="store_true",
-                        help="Interactively prompt for save location when --output is not given")
     parser.add_argument("--context", default=None,
-                        help="Optional analysis focus passed to the AI assistant")
-    parser.add_argument("--assistant", default="auto", choices=["claude", "copilot", "auto"],
-                        help="Which assistant to use for insights generation")
+                        help="Optional analysis focus passed into Claude's prompt "
+                             "(e.g. 'spotlight Finance' or 'frame for the CISO')")
     return parser
 
 
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    return run(args)
+
+    # Resolve positional vs --input flag (--input wins when both are given)
+    input_path = args.input_flag or args.input
+
+    if args.verify:
+        result = verify_insights(args.insights)
+        return 0 if result["passed"] else 1
+
+    if args.prepare:
+        if not input_path:
+            print("Error: --prepare requires an input path.")
+            return 1
+        return _run_prepare(input_path, context=args.context)
+
+    if args.build:
+        return _run_build(input_path, args.output, args.ask_output, args.insights)
+
+    if not input_path:
+        parser.print_help()
+        return 1
+
+    return _run_full(input_path, args.output, args.ask_output,
+                     args.insights, context=args.context)
 
 
 if __name__ == "__main__":
