@@ -1,13 +1,13 @@
-# Power BI to Exec Deck
+# PBI to PDF
 
-Turn Power BI dashboards into executive-ready PowerPoint decks and PDF reports with Claude Code or GitHub Copilot Chat.
+Convert Power BI dashboards into PDF reports and executive PowerPoint decks with Claude Code or GitHub Copilot Chat.
 
 ![Demo](demo.gif)
 
 ## What this project does
 
-- Generates executive PPTX decks from `.pdf`, `.pptx`, `.pbip`, and `.pbix` inputs
 - Generates PDF reports from the same extraction and analysis pipeline
+- Generates executive PPTX decks from `.pdf`, `.pptx`, `.pbip`, and `.pbix` inputs
 - Supports screenshot-based output or vector chart rendering with `--vector-charts`
 - Accepts business context so the analysis can focus on a team, theme, or time period
 - Uses Power BI MCP for exact-value analysis when working with `.pbip` or `.pbix`
@@ -16,8 +16,8 @@ Turn Power BI dashboards into executive-ready PowerPoint decks and PDF reports w
 
 | Mode | Inputs | Data source | Typical use |
 |---|---|---|---|
-| Quick mode | `.pdf`, `.pptx` | Page and slide images plus OCR | Fastest path from exported dashboards to slides |
-| Deep analysis mode | `.pbip`, `.pbix` | Live DAX queries via MCP when available, otherwise image fallback | Best when you want exact numbers and richer context |
+| Quick mode | `.pdf`, `.pptx` | Page and slide images plus OCR | Fastest path from exported dashboards to PDF reports or PPTX decks |
+| Deep analysis mode | `.pbip`, `.pbix` | Live DAX queries via MCP when available, otherwise image fallback | Best when you want exact numbers and richer context in the final output |
 
 ## Requirements
 
@@ -27,22 +27,26 @@ Turn Power BI dashboards into executive-ready PowerPoint decks and PDF reports w
   - VS Code with GitHub Copilot Chat
 - Optional for deep analysis: Power BI Desktop and Power BI MCP
 
-## Setup
+## First-time setup
 
 Clone your repository and install the dependency profile you plan to use.
 
 ```bash
-git clone <your-repo-url>
-cd <repo-folder>
+git clone https://github.com/repo-sumit/pbi-to-pdf.git
+cd pbi-to-pdf
+```
 
-# For Claude Code
+Choose one dependency profile:
+
+```bash
+# Claude Code / general CLI usage
 python check_setup.py --profile claude --auto-install
 
-# For GitHub Copilot Chat
+# GitHub Copilot Chat usage
 python check_setup.py --profile copilot --auto-install
 ```
 
-Manual install also works. Install the profile you need:
+Manual install also works if you prefer:
 
 ```bash
 # Claude / general CLI usage
@@ -52,7 +56,30 @@ pip install -r requirements.txt
 pip install -r requirements-copilot.txt
 ```
 
-## Assistant workflows
+Optional for `.pbip` and `.pbix` deep analysis:
+
+```bash
+python setup_pbi_mcp.py
+python setup_pbi_mcp.py --check
+```
+
+## First run
+
+After setup, start with the output you want.
+
+### First PDF report
+
+```bash
+python run_report.py --input "C:\path\to\dashboard.pbix"
+```
+
+### First PowerPoint deck
+
+```bash
+python convert_dashboard.py "C:\path\to\dashboard.pbip"
+```
+
+### First run with an assistant
 
 ### Claude Code
 
@@ -71,25 +98,11 @@ claude
 Create exec deck "C:\path\to\dashboard.pdf"
 ```
 
-## CLI usage
+## Regular runs (after setup)
 
-### Build an executive deck
+For day-to-day use, you can skip setup and run the script you need directly.
 
-```bash
-python convert_dashboard.py "C:\path\to\dashboard.pbip"
-python convert_dashboard.py "C:\path\to\dashboard.pbip" --vector-charts
-python convert_dashboard.py "C:\path\to\dashboard.pptx" --output "C:\out\executive.pptx"
-python convert_dashboard.py "C:\path\to\dashboard.pdf" --context "Focus on Finance and month-over-month change"
-```
-
-### Run the full setup + conversion pipeline
-
-```bash
-python run_pipeline.py --source "C:\path\to\dashboard.pbix" --assistant claude
-python run_pipeline.py --source "C:\path\to\dashboard.pdf" --assistant copilot --output "C:\out\deck.pptx"
-```
-
-### Build a PDF report
+### PDF output
 
 ```bash
 # Auto-save next to the input as <stem>_report.pdf
@@ -103,6 +116,22 @@ python run_report.py --input "C:\path\to\dashboard.pbip" --ask-output
 
 # Re-render only from an existing temp/insights.json
 python run_report.py --build --input "C:\path\to\dashboard.pbix"
+```
+
+### PowerPoint output
+
+```bash
+python convert_dashboard.py "C:\path\to\dashboard.pbip"
+python convert_dashboard.py "C:\path\to\dashboard.pbip" --vector-charts
+python convert_dashboard.py "C:\path\to\dashboard.pptx" --output "C:\out\executive.pptx"
+python convert_dashboard.py "C:\path\to\dashboard.pdf" --context "Focus on Finance and month-over-month change"
+```
+
+### Helper pipeline
+
+```bash
+python run_pipeline.py --source "C:\path\to\dashboard.pbix" --assistant claude
+python run_pipeline.py --source "C:\path\to\dashboard.pdf" --assistant copilot --output "C:\out\deck.pptx"
 ```
 
 ## Deep analysis setup for PBIP and PBIX
@@ -168,8 +197,8 @@ Quick export options from Power BI:
 
 | Path | Purpose |
 |---|---|
-| `convert_dashboard.py` | Main deck-generation entry point |
 | `run_report.py` | PDF report entry point |
+| `convert_dashboard.py` | Main deck-generation entry point |
 | `run_pipeline.py` | Setup + conversion wrapper |
 | `setup_pbi_mcp.py` | Power BI MCP installer and checker |
 | `check_setup.py` | Dependency validation and auto-install helper |
