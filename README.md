@@ -1,221 +1,240 @@
-# PBI to PDF
+# pbi-to-pdf
 
-Convert Power BI dashboards into PDF reports and executive PowerPoint decks with Claude Code or GitHub Copilot Chat.
+**Power BI dashboards → polished A4 PDF reports, designed for Claude Code.**
 
-![Demo](demo.gif)
+You point the CLI at a Power BI export, and Claude Code (running in your
+terminal) reads each dashboard page, generates analyst-grade insights,
+and the toolkit renders them into a portrait A4 PDF you can hand to an
+executive.
 
-## What this project does
+No Anthropic API key is required — the analysis runs inside your active
+Claude Code session.
 
-- Generates PDF reports from the same extraction and analysis pipeline
-- Generates executive PPTX decks from `.pdf`, `.pptx`, `.pbip`, and `.pbix` inputs
-- Supports screenshot-based output or vector chart rendering with `--vector-charts`
-- Accepts business context so the analysis can focus on a team, theme, or time period
-- Uses Power BI MCP for exact-value analysis when working with `.pbip` or `.pbix`
+---
 
-## Input modes
+## What this is (and isn't)
 
-| Mode | Inputs | Data source | Typical use |
-|---|---|---|---|
-| Quick mode | `.pdf`, `.pptx` | Page and slide images plus OCR | Fastest path from exported dashboards to PDF reports or PPTX decks |
-| Deep analysis mode | `.pbip`, `.pbix` | Live DAX queries via MCP when available, otherwise image fallback | Best when you want exact numbers and richer context in the final output |
+| | |
+|---|---|
+| **Primary output** | A portrait A4 PDF report (`<input>_report.pdf`) |
+| **Primary driver** | Claude Code as the senior analyst in the loop |
+| **Optional power-up** | Live DAX queries via the Power BI Modeling MCP for `.pbix` and `.pbip` |
+| **Not a deck generator** | The deck-generation path was removed — this is a report tool |
 
-## Requirements
+---
 
-- Python 3.8+
-- One assistant workflow:
-  - Claude Code
-  - VS Code with GitHub Copilot Chat
-- Optional for deep analysis: Power BI Desktop and Power BI MCP
+## Supported inputs
 
-## First-time setup
+| Format | Mode | Best for |
+|---|---|---|
+| `.pdf`  | Image analysis | Quick exports from Power BI Service |
+| `.pptx` | Image analysis | "Export to PowerPoint" output |
+| `.pbip` | Live DAX (preferred) | Source of truth — measure DAX is exposed cleanly |
+| `.pbix` | Live DAX | Requires Power BI Desktop open during the run |
 
-Clone your repository and install the dependency profile you plan to use.
+When the optional Power BI Modeling MCP isn't available, `.pbip` and
+`.pbix` fall back to image analysis automatically.
+
+---
+
+## Install
+
+Requires Python 3.8+.
 
 ```bash
 git clone https://github.com/repo-sumit/pbi-to-pdf.git
 cd pbi-to-pdf
-```
-
-Choose one dependency profile:
-
-```bash
-# Claude Code / general CLI usage
-python check_setup.py --profile claude --auto-install
-
-# GitHub Copilot Chat usage
-python check_setup.py --profile copilot --auto-install
-```
-
-Manual install also works if you prefer:
-
-```bash
-# Claude / general CLI usage
 pip install -r requirements.txt
-
-# Copilot-oriented extraction extras
-pip install -r requirements-copilot.txt
 ```
 
-Optional for `.pbip` and `.pbix` deep analysis:
+Or one-shot:
 
 ```bash
-python setup_pbi_mcp.py
-python setup_pbi_mcp.py --check
+python check_setup.py --auto-install
 ```
 
-## First run
-
-After setup, start with the output you want.
-
-### First PDF report
+### Optional: deep DAX analysis for `.pbix` / `.pbip`
 
 ```bash
-python run_report.py --input "C:\path\to\dashboard.pbix"
+python setup_pbi_mcp.py          # download + register the MCP server
+python setup_pbi_mcp.py --check  # confirm it's wired up
 ```
 
-### First PowerPoint deck
+After the MCP is installed, **restart Claude Code** so it picks the
+server up. Then open the report in Power BI Desktop before running
+the report command — the MCP needs the live model to be reachable.
+
+---
+
+## Generate a report
+
+The single end-to-end command:
 
 ```bash
-python convert_dashboard.py "C:\path\to\dashboard.pbip"
+python run_report.py "C:/path/to/dashboard.pbix"
 ```
 
-### First run with an assistant
+This runs three stages:
 
-### Claude Code
+1. **Extract** — `temp/slide_N.png` per page + `temp/analysis_request.json`.
+   PBIP/PBIX also writes `temp/pbip_context.json` (model + DAX queries).
+2. **Analyse** — Claude Code reads the manifest, the screenshots and/or
+   the live model, and writes `temp/insights.json`.
+3. **Build** — `lib/reporting/pdf_builder.py` renders the A4 PDF.
+
+Default save path: `<input_dir>/<input_stem>_report.pdf`.
+
+### Inside Claude Code
+
+The most idiomatic way to run it is the bundled slash command:
 
 ```text
-claude
-> create exec deck "C:\path\to\dashboard.pdf"
+/generate-report "C:/path/to/dashboard.pbix"
 ```
 
-### GitHub Copilot Chat
+`.claude/commands/generate-report.md` walks Claude through extract →
+read manifest → analyse → write `temp/insights.json` → verify → build.
 
-1. Open the folder in VS Code.
-2. Open Copilot Chat and switch to Agent mode.
-3. Prompt:
-
-```text
-Create exec deck "C:\path\to\dashboard.pdf"
-```
-
-## Regular runs (after setup)
-
-For day-to-day use, you can skip setup and run the script you need directly.
-
-### PDF output
+### Variants
 
 ```bash
-# Auto-save next to the input as <stem>_report.pdf
-python run_report.py --input "C:\path\to\dashboard.pbix"
+# Choose where the PDF goes
+python run_report.py "dashboard.pdf" --output "out/Q2_report.pdf"
 
-# Custom output path
-python run_report.py --input "C:\path\to\dashboard.pbix" --output "C:\out\Q2_report.pdf"
+# Be prompted for the save location (interactive TTY only)
+python run_report.py "dashboard.pbip" --ask-output
 
-# Prompt for save location
-python run_report.py --input "C:\path\to\dashboard.pbip" --ask-output
+# Steer the analysis focus (passed into Claude's prompt)
+python run_report.py "dashboard.pbip" --context "Focus on Finance and MoM change"
+python run_report.py "dashboard.pdf"  --context "Audience is the CISO; emphasise security"
 
-# Re-render only from an existing temp/insights.json
-python run_report.py --build --input "C:\path\to\dashboard.pbix"
+# Stage 1 only (extract + print Claude prompt — no polling, no build)
+python run_report.py "dashboard.pbix" --prepare
+
+# Stage 3 only (re-render PDF from existing temp/insights.json)
+python run_report.py --build --input "dashboard.pbix"
+
+# Stage 2.5 only (verify a hand-edited insights.json)
+python run_report.py --verify
 ```
 
-### PowerPoint output
+---
 
-```bash
-python convert_dashboard.py "C:\path\to\dashboard.pbip"
-python convert_dashboard.py "C:\path\to\dashboard.pbip" --vector-charts
-python convert_dashboard.py "C:\path\to\dashboard.pptx" --output "C:\out\executive.pptx"
-python convert_dashboard.py "C:\path\to\dashboard.pdf" --context "Focus on Finance and month-over-month change"
-```
+## What the PDF looks like
 
-### Helper pipeline
+A typical report contains, in order:
 
-```bash
-python run_pipeline.py --source "C:\path\to\dashboard.pbix" --assistant claude
-python run_pipeline.py --source "C:\path\to\dashboard.pdf" --assistant copilot --output "C:\out\deck.pptx"
-```
+1. **Cover** — deck title, subtitle, source name + type, generated timestamp.
+2. **Executive summary** — five synthesised findings, highest impact first.
+3. **Recommendations** — 3–5 specific, data-grounded next steps.
+4. **One section per dashboard page**:
+   - Page title + headline (the "so what?")
+   - KPI strip (when the page exposes scalar metrics)
+   - Source dashboard screenshot (with caption)
+   - "Key insights" — up to 3 bullets in `Bold || Detail` format
+   - Tables and charts rendered as crisp vector visuals
+5. **Appendix** — source metadata + every number cited, by page (so a
+   reviewer can trace each figure back to the dashboard).
 
-## Deep analysis setup for PBIP and PBIX
+Tables stay tables, KPI groups render as one strip per page, charts
+are kept-together with their titles, and pagination flows to fill
+vertical space rather than one-chart-per-page.
 
-For `.pbip` and `.pbix`, this project can connect to Power BI Desktop through the Power BI MCP server and query exact values using DAX.
+---
 
-`.pbip` is usually the better input because it exposes measure definitions more clearly than `.pbix`.
+## How the deep-analysis path works
 
-### One-time setup
+When `.pbip` or `.pbix` is the input and the Power BI Modeling MCP is
+ready, the extractor walks the model and writes `temp/pbip_context.json`
+with:
 
-```bash
-python setup_pbi_mcp.py
-python setup_pbi_mcp.py --check
-```
+- every page and its visuals,
+- every measure with its full DAX formula,
+- a pre-built `EVALUATE` query per page.
 
-### Workflow
+Claude executes those queries through
+`mcp__powerbi-modeling__dax_query_operations.execute_query` and uses the
+returned values verbatim — never visual estimates. The build stage
+renders matplotlib charts directly from those numbers, so the PDF is
+trace-back-able to the live model.
 
-1. Open the report in Power BI Desktop.
-2. Restart your assistant session.
-3. Run the deck or report command again.
+If the MCP isn't installed, the script prints a clear warning and falls
+back to image analysis. Nothing breaks; only the precision drops.
 
-If MCP is not available, `.pbip` and `.pbix` inputs fall back to image-based analysis automatically.
+---
 
-## Output options
+## Customising the analysis
 
-### Vector charts
+There are three ways to influence what Claude focuses on:
 
-By default, deck generation embeds Power BI page screenshots. Add `--vector-charts` to render charts directly from the extracted data.
+1. **`--context "..."`** — free-text steering injected into the
+   Claude prompt. Best for "frame for the CFO" or "spotlight HR".
+2. **Edit `temp/insights.json` and rebuild** — run
+   `python run_report.py --build --input "<source>"` to re-render any
+   hand-tweaked insights. Useful when a stakeholder wants to swap a
+   headline or add a recommendation.
+3. **Skip stage 1 in subsequent runs** — once `temp/` is populated,
+   `--build` is the fast path.
 
-Use this when:
-
-- The original screenshots are low quality
-- You want resolution-independent charts in the final deck
-- Exact data is available through MCP and you want cleaner visuals
-
-### Context-aware analysis
-
-Add `--context` or include natural-language guidance in your assistant prompt to steer the analysis.
-
-Examples:
-
-```text
-Create exec deck "C:\path\to\report.pbip" --vector-charts
-Create exec deck "C:\path\to\dashboard.pdf" --context "Audience is the CISO; emphasize security and compliance metrics"
-Create exec deck "C:\path\to\report.pbip" --context "Focus on HR and Operations; frame recommendations around reducing onboarding time"
-```
-
-## Supported inputs
-
-| Input | Format | Typical mode |
-|---|---|---|
-| PDF export | `.pdf` | Quick mode |
-| PowerPoint export | `.pptx` | Quick mode |
-| Power BI project | `.pbip` | Deep analysis mode |
-| Power BI file | `.pbix` | Deep analysis mode |
-
-Quick export options from Power BI:
-
-- PDF: `File -> Export -> Export to PDF`
-- PPTX: `File -> Export -> PowerPoint`
+---
 
 ## Project layout
 
 | Path | Purpose |
 |---|---|
-| `run_report.py` | PDF report entry point |
-| `convert_dashboard.py` | Main deck-generation entry point |
-| `run_pipeline.py` | Setup + conversion wrapper |
-| `setup_pbi_mcp.py` | Power BI MCP installer and checker |
-| `check_setup.py` | Dependency validation and auto-install helper |
-| `lib/extraction/` | Input parsing and extraction |
-| `lib/rendering/` | PowerPoint assembly and validation |
-| `lib/reporting/` | PDF report rendering |
-| `docs/` | Design notes, structure, and quality rules |
-| `CLAUDE.md` | Claude Code workflow guidance |
-| `COPILOT.md` | Copilot workflow guidance |
+| `run_report.py` | Single CLI entry point for the whole pipeline |
+| `lib/pipeline.py` | Stage orchestration, MCP detection, Claude prompt, verifier |
+| `lib/extraction/` | Format-specific extractors (PDF / PPTX / PBIP / PBIX) |
+| `lib/analysis/insights.py` | `Insight`, `BulletPoint`, `ChartSpec` dataclasses |
+| `lib/reporting/pdf_builder.py` | A4 ReportLab renderer |
+| `lib/reporting/report_schema.py` | `insights.json` → `ReportData` adapter |
+| `lib/reporting/charts.py` | Matplotlib chart-spec → PNG renderer |
+| `setup_pbi_mcp.py` | Installs the Power BI Modeling MCP server |
+| `check_setup.py` | Dependency check / auto-install |
+| `CLAUDE.md` | Authoritative analyst playbook for Claude Code |
+| `docs/DASHBOARD_READING_RULES.md` | Page-reading rules to apply before analysis |
+| `.claude/commands/generate-report.md` | `/generate-report` slash command |
+| `temp/` | Working directory (auto-generated, gitignored) |
 
-## Docs
+---
 
-- [Project structure](docs/PROJECT_STRUCTURE.md)
-- [Executive slides feature](docs/EXECUTIVE_SLIDES_FEATURE.md)
-- [Constitution compliance](docs/CONSTITUTION_COMPLIANCE.md)
-- [Dashboard reading rules](docs/DASHBOARD_READING_RULES.md)
+## Errors & fallbacks
+
+| Situation | What happens |
+|---|---|
+| Power BI MCP not installed | Warning printed; PBIP/PBIX run with image analysis |
+| Power BI Desktop not open | MCP queries fail; rerun with the project open |
+| `temp/insights.json` never appears | After 5 minutes the run exits with the next-step command |
+| `--verify` reports errors (e.g. missing `executive_summary`) | Build aborts; fix `temp/insights.json` and re-run |
+| `--verify` reports warnings only | Build continues; warnings are printed |
+| A page screenshot can't be rendered | The PDF section omits it and continues with insights/charts |
+| A chart spec is malformed | That spec is skipped; the page still renders |
+
+`temp/` is treated as a per-run working directory — safe to delete
+between runs; everything in it is regenerable.
+
+---
+
+## What was removed in this refactor
+
+This repo previously also generated executive PowerPoint decks and
+shipped a parallel Copilot Chat workflow. Those paths were cut to make
+the report path coherent.
+
+- `convert_dashboard.py`, `run_pipeline.py` — replaced by `run_report.py`
+- `lib/rendering/` — PPTX builder, native chart builder, PPTX validator
+- `COPILOT.md`, `.github/copilot-instructions.md`, `requirements-copilot.txt`
+- `convert-to-exec-deck.cmd`, `install-alias.ps1`
+- `Example-Storyboard-Analytics.pptx`, `demo.gif`
+- `lib/extraction/ocr_extractor.py` (Copilot-only path)
+- Deck-only docs in `docs/` (the analyst-facing
+  `DASHBOARD_READING_RULES.md` is preserved)
+
+If you need the deck-generation path, check out a tag from before this
+refactor.
+
+---
 
 ## License
 
-MIT
+MIT — see [`LICENSE`](LICENSE).

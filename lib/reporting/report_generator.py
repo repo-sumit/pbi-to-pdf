@@ -1,9 +1,10 @@
 """
 Top-level orchestrator that turns insights.json into a PDF report.
 
-This is the report-mode equivalent of build_presentation_from_insights()
-in convert_dashboard.py. It deliberately mirrors that function's shape so
-run_report.py can drop it in as Step 3 of the pipeline.
+Loads the canonical analyst output (``temp/insights.json``), adapts it
+to ``ReportData`` via :mod:`lib.reporting.report_schema`, and renders
+the final A4 PDF via :mod:`lib.reporting.pdf_builder`. Used as Stage 3
+of the pipeline orchestrated from ``run_report.py``.
 """
 
 from __future__ import annotations
